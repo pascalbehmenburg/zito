@@ -4,3 +4,27 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+colored = "3.0.0"
+daachorse = "1.0.0"
+eyre = "0.6.12"
+quickcheck = "1.0.3"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "file_indexing"
+harness = false
+
+[lib]
+name = "zito"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zito"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
