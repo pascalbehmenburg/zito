@@ -694,4 +694,5 @@ dependencies = [
  "daachorse",
  "eyre",
  "quickcheck",
+ "walkdir",
 ]

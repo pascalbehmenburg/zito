@@ -23,6 +23,19 @@ pub struct Index {
     pub trigrams: HashMap<Trigram, Vec<Posting>>,
 }
 
+pub fn index_files(file_paths: &[&str]) -> Result<Vec<Index>> {
+    let mut indices = Vec::with_capacity(file_paths.len());
+
+    for file in file_paths {
+        let reader = std::fs::File::open(file).map_err(|e| eyre!("Failed to open file {}: {}", file, e))?;
+        let reader = std::io::BufReader::new(reader);
+        let index = index_file(reader)?;
+        indices.push(index);
+    }
+
+    Ok(indices)
+}
+
 pub fn index_file<R: BufRead>(mut reader: R) -> Result<Index> {
     let mut index = Index {
         lines: Vec::with_capacity(1024),
