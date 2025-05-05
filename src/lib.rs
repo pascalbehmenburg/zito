@@ -1,5 +1,10 @@
 use eyre::{Result, eyre};
-use std::{collections::HashMap, io::BufRead};
+use std::{
+    collections::HashMap,
+    io::BufRead,
+    path::{Path, PathBuf},
+};
+use walkdir::WalkDir;
 
 pub type FileId = u32;
 pub type Offset = u32;
@@ -11,37 +16,91 @@ pub struct Line {
     pub end: Offset,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Posting {
-    pub line_number: Offset,
-    pub byte_offset: Offset,
+    pub line_number: u32,
+    pub byte_offset: u32,
+}
+
+impl Posting {
+    #[inline]
+    pub fn line_number(&self) -> u32 {
+        self.line_number
+    }
+
+    #[inline]
+    pub fn byte_offset(&self) -> u32 {
+        self.byte_offset
+    }
+}
+
+#[derive(Debug)]
+pub struct PostingList {
+    data: Vec<Posting>,
+}
+
+impl PostingList {
+    #[inline]
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, posting: Posting) {
+        self.data.push(posting);
+    }
+
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<&Posting> {
+        self.data.get(index)
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &[Posting] {
+        self.data.as_slice()
+    }
+}
+
+impl<'a> IntoIterator for &'a PostingList {
+    type Item = &'a Posting;
+    type IntoIter = std::slice::Iter<'a, Posting>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
 }
 
 #[derive(Debug)]
 pub struct Index {
+    pub file_path: PathBuf,
     pub lines: Vec<Line>,
-    pub trigrams: HashMap<Trigram, Vec<Posting>>,
+    pub trigrams: HashMap<Trigram, PostingList>,
 }
 
-pub fn index_files(file_paths: &[&str]) -> Result<Vec<Index>> {
-    let mut indices = Vec::with_capacity(file_paths.len());
+pub fn index_files<P: AsRef<Path>>(path: P) -> Result<Vec<Index>> {
+    let mut indices = Vec::new();
 
-    for file in file_paths {
-        let reader = std::fs::File::open(file).map_err(|e| eyre!("Failed to open file {}: {}", file, e))?;
-        let reader = std::io::BufReader::new(reader);
-        let index = index_file(reader)?;
-        indices.push(index);
+    for entry in WalkDir::new(path)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        if let Ok(file) = std::fs::File::open(entry.path()) {
+            let reader = std::io::BufReader::new(file);
+            match index_file(reader, entry.path().to_path_buf()) {
+                Ok(index) => indices.push(index),
+                Err(_) => continue, // Skip files that can't be indexed
+            }
+        }
     }
 
     Ok(indices)
 }
 
-pub fn index_file<R: BufRead>(mut reader: R) -> Result<Index> {
-    let mut index = Index {
-        lines: Vec::with_capacity(1024),
-        trigrams: HashMap::with_capacity(4096),
-    };
-
+pub fn index_file<R: BufRead>(mut reader: R, file_path: PathBuf) -> Result<Index> {
     let mut content = Vec::with_capacity(reader.fill_buf().map_or(0, |b| b.len()));
     reader.read_to_end(&mut content)?;
 
@@ -49,46 +108,64 @@ pub fn index_file<R: BufRead>(mut reader: R) -> Result<Index> {
         return Err(eyre!("File too short to index"));
     }
 
+    // Calculate expected number of unique trigrams
+    // Assuming ASCII text, each byte can be one of ~95 printable chars
+    // For a text of length n, we have (n-2) trigrams
+    // Estimate unique trigrams as min(actual_trigrams, max_possible_trigrams)
+    let num_trigrams = content.len().saturating_sub(2);
+    let max_possible_trigrams = 95 * 95 * 95; // ~857k max possible unique trigrams
+    let estimated_unique = (num_trigrams / 2).min(max_possible_trigrams);
+
+    let mut index = Index {
+        file_path,
+        lines: Vec::with_capacity((content.len() / 40).max(1024)), // Assume average line length of 80
+        trigrams: HashMap::with_capacity(estimated_unique),
+    };
+
     let mut line_number = 0;
     let mut line_start = 0;
+    const POSTING_CAPACITY: usize = 64; // Revert to original value for better performance
+    let mut posting_lists: HashMap<Trigram, PostingList> = HashMap::with_capacity(estimated_unique);
 
-    let mut window = [0u8; 3];
-    let mut window_size = 0;
+    let window = content.as_ptr();
+    let end = unsafe { window.add(content.len()) };
+    let mut current = window;
 
-    for (byte_offset, &c) in content.iter().enumerate() {
+    while unsafe { current.add(2) } < end {
+        let c = unsafe { *current };
+
         if c == b'\n' {
             index.lines.push(Line {
-                start: line_start as Offset,
-                end: byte_offset as Offset,
+                start: line_start,
+                end: (current as usize - window as usize) as Offset,
             });
             line_number += 1;
-            line_start = byte_offset + 1;
+            line_start = (current as usize - window as usize + 1) as Offset;
         }
 
-        if window_size < 3 {
-            window[window_size] = c;
-            window_size += 1;
-        } else {
-            window.copy_within(1..3, 0);
-            window[2] = c;
-        }
+        let trigram = unsafe { [*current, *current.add(1), *current.add(2)] };
 
-        if window_size == 3 {
-            index.trigrams.entry(window).or_default().push(Posting {
+        posting_lists
+            .entry(trigram)
+            .or_insert_with(|| PostingList::with_capacity(POSTING_CAPACITY))
+            .push(Posting {
                 line_number,
-                byte_offset: byte_offset as Offset,
+                byte_offset: unsafe { current.add(2) as usize - window as usize } as Offset,
             });
-        }
+
+        current = unsafe { current.add(1) };
     }
 
-    // add the last line if it does not end with a newline
-    if line_start < content.len() {
+    // Handle the last line if it doesn't end with a newline
+    let final_offset = unsafe { current.add(2).min(end) as usize - window as usize };
+    if line_start as usize != final_offset {
         index.lines.push(Line {
-            start: line_start as Offset,
-            end: content.len() as Offset,
+            start: line_start,
+            end: final_offset as Offset,
         });
     }
 
+    index.trigrams = posting_lists;
     Ok(index)
 }
 
@@ -102,13 +179,13 @@ mod tests {
     #[test]
     fn test_empty_content() {
         let reader = Cursor::new(vec![]);
-        assert!(index_file(reader).is_err());
+        assert!(index_file(reader, PathBuf::new()).is_err());
     }
 
     #[test]
     fn test_content_with_exactly_three_valid_chars() {
         let reader = Cursor::new("abc");
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         assert_eq!(
             index.trigrams.len(),
             1,
@@ -120,7 +197,7 @@ mod tests {
     #[test]
     fn test_content_with_multiple_trigrams() {
         let reader = Cursor::new("the quick brown fox");
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         assert!(index.trigrams.contains_key(&[b't', b'h', b'e']));
         assert!(index.trigrams.contains_key(&[b'h', b'e', b' ']));
         assert!(index.trigrams.contains_key(&[b'q', b'u', b'i']));
@@ -129,7 +206,7 @@ mod tests {
     #[test]
     fn test_content_with_whitespace() {
         let reader = Cursor::new("the\n\tquick\rfox");
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         assert!(index.trigrams.contains_key(&[b't', b'h', b'e']));
         assert!(index.trigrams.contains_key(&[b'q', b'u', b'i']));
         assert!(index.trigrams.contains_key(&[b'u', b'i', b'c']));
@@ -138,7 +215,7 @@ mod tests {
     #[test]
     fn test_line_tracking() {
         let reader = Cursor::new("first\nsecond\nthird");
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         assert_eq!(index.lines.len(), 3);
         assert_eq!(index.lines[0].start, 0);
         assert_eq!(index.lines[0].end, 5);
@@ -152,28 +229,28 @@ mod tests {
     fn test_large_file() {
         let content = "a".repeat(1_000_000);
         let reader = Cursor::new(content);
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         assert!(!index.trigrams.is_empty());
     }
 
     #[test]
     fn test_posting_correctness() {
         let reader = Cursor::new("hello\nworld");
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
         let hel = index.trigrams.get(&[b'h', b'e', b'l']).unwrap();
-        assert_eq!(hel[0].line_number, 0);
-        assert_eq!(hel[0].byte_offset, 2);
+        assert_eq!(hel.get(0).unwrap().line_number(), 0);
+        assert_eq!(hel.get(0).unwrap().byte_offset(), 2);
 
         let wor = index.trigrams.get(&[b'w', b'o', b'r']).unwrap();
-        assert_eq!(wor[0].line_number, 1);
-        assert_eq!(wor[0].byte_offset, 8);
+        assert_eq!(wor.get(0).unwrap().line_number(), 1);
+        assert_eq!(wor.get(0).unwrap().byte_offset(), 8);
     }
 
     #[test]
     fn test_daachorse_trigram_matching() {
         let test_content = b"the quick brown fox";
         let reader = Cursor::new(test_content);
-        let index = index_file(reader).unwrap();
+        let index = index_file(reader, PathBuf::new()).unwrap();
 
         // Convert trigrams to patterns for Aho-Corasick
         let patterns: Vec<&[u8]> = index.trigrams.keys().map(|key| key.as_ref()).collect();
@@ -196,7 +273,7 @@ mod tests {
     quickcheck! {
         fn test_no_trigrams_for_short_content(content: Vec<u8>) -> bool {
             let reader = Cursor::new(content.clone());
-            match index_file(reader) {
+            match index_file(reader, PathBuf::new()) {
                 Ok(index) => {
                     // If we got an index, ensure it's empty for short content
                     if content.len() < 3 {
@@ -218,7 +295,7 @@ mod tests {
             }
 
             // Try to create index
-            let index = match index_file(reader) {
+            let index = match index_file(reader, PathBuf::new()) {
                 Ok(idx) => idx,
                 Err(_) => return true // Skip validation if indexing fails
             };
