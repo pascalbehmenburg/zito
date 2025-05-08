@@ -1,11 +1,47 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
 use std::{collections::HashMap, env::current_dir};
-use zito::index_files;
+use zito::{Index, index_files};
 
 fn main() -> eyre::Result<()> {
+    // example: index files in (e.g. src) dir
     let indices = index_files("src")?;
 
+    // example: create index cache directory
+    let index_dir = current_dir()?.join("index");
+    std::fs::create_dir_all(&index_dir)?;
+    for index in indices.iter() {
+        let index_path = index_dir.join(
+            index
+                .file_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+                + ".zito",
+        );
+        index.store(index_path)?;
+    }
+
+    // example: use walkdir to load index files
+    let mut indices: Vec<Index> = Vec::new();
+    walkdir::WalkDir::new("index")
+        .into_iter()
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension()?.to_str()? == "zito" {
+                Some(path.to_path_buf())
+            } else {
+                None
+            }
+        })
+        .for_each(|path| {
+            indices.push(zito::Index::load(path.clone()).unwrap());
+            println!("Loaded index from {}", path.display());
+        });
+
+    // example: use Aho-Corasick to search for a query
     for index in indices.iter() {
         let trigram_index = index
             .trigrams
@@ -80,19 +116,6 @@ fn main() -> eyre::Result<()> {
                 );
             }
         }
-        let index_dir = current_dir()?.join("index");
-        std::fs::create_dir_all(&index_dir)?;
-
-        let index_path = index_dir.join(
-            index
-                .file_path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-                + ".zito",
-        );
-        index.store(index_path)?;
     }
 
     Ok(())
