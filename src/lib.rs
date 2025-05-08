@@ -1,4 +1,5 @@
 use eyre::{Result, eyre};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     io::BufRead,
@@ -10,31 +11,19 @@ pub type FileId = u32;
 pub type Offset = u32;
 pub type Trigram = [u8; 3];
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Line {
     pub start: Offset,
     pub end: Offset,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Posting {
     pub line_number: u32,
     pub byte_offset: u32,
 }
 
-impl Posting {
-    #[inline]
-    pub fn line_number(&self) -> u32 {
-        self.line_number
-    }
-
-    #[inline]
-    pub fn byte_offset(&self) -> u32 {
-        self.byte_offset
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PostingList {
     data: Vec<Posting>,
 }
@@ -72,11 +61,34 @@ impl<'a> IntoIterator for &'a PostingList {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Index {
     pub file_path: PathBuf,
     pub lines: Vec<Line>,
     pub trigrams: HashMap<Trigram, PostingList>,
+}
+
+impl Index {
+    pub fn store<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        bincode::serde::encode_into_std_write(
+            self,
+            &mut writer,
+            bincode::config::standard(),
+        )?;
+        Ok(())
+    }
+
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let mut reader = std::io::BufReader::new(file);
+        let index = bincode::serde::decode_from_std_read(
+            &mut reader,
+            bincode::config::standard(),
+        )?;
+        Ok(index)
+    }
 }
 
 pub fn index_files<P: AsRef<Path>>(path: P) -> Result<Vec<Index>> {
@@ -92,7 +104,7 @@ pub fn index_files<P: AsRef<Path>>(path: P) -> Result<Vec<Index>> {
             let reader = std::io::BufReader::new(file);
             match index_file(reader, entry.path().to_path_buf()) {
                 Ok(index) => indices.push(index),
-                Err(_) => continue, // Skip files that can't be indexed
+                Err(_) => continue,
             }
         }
     }
@@ -100,8 +112,12 @@ pub fn index_files<P: AsRef<Path>>(path: P) -> Result<Vec<Index>> {
     Ok(indices)
 }
 
-pub fn index_file<R: BufRead>(mut reader: R, file_path: PathBuf) -> Result<Index> {
-    let mut content = Vec::with_capacity(reader.fill_buf().map_or(0, |b| b.len()));
+pub fn index_file<R: BufRead>(
+    mut reader: R,
+    file_path: PathBuf,
+) -> Result<Index> {
+    let mut content =
+        Vec::with_capacity(reader.fill_buf().map_or(0, |b| b.len()));
     reader.read_to_end(&mut content)?;
 
     if content.len() < 3 {
@@ -113,19 +129,22 @@ pub fn index_file<R: BufRead>(mut reader: R, file_path: PathBuf) -> Result<Index
     // For a text of length n, we have (n-2) trigrams
     // Estimate unique trigrams as min(actual_trigrams, max_possible_trigrams)
     let num_trigrams = content.len().saturating_sub(2);
-    let max_possible_trigrams = 95 * 95 * 95; // ~857k max possible unique trigrams
+    // ~857k max possible unique trigrams
+    let max_possible_trigrams = 95 * 95 * 95;
     let estimated_unique = (num_trigrams / 2).min(max_possible_trigrams);
 
     let mut index = Index {
         file_path,
-        lines: Vec::with_capacity((content.len() / 40).max(1024)), // Assume average line length of 80
+        // Assume average line length of 80
+        lines: Vec::with_capacity((content.len() / 40).max(1024)),
         trigrams: HashMap::with_capacity(estimated_unique),
     };
 
     let mut line_number = 0;
     let mut line_start = 0;
-    const POSTING_CAPACITY: usize = 64; // Revert to original value for better performance
-    let mut posting_lists: HashMap<Trigram, PostingList> = HashMap::with_capacity(estimated_unique);
+    const POSTING_CAPACITY: usize = 64;
+    let mut posting_lists: HashMap<Trigram, PostingList> =
+        HashMap::with_capacity(estimated_unique);
 
     let window = content.as_ptr();
     let end = unsafe { window.add(content.len()) };
@@ -150,14 +169,17 @@ pub fn index_file<R: BufRead>(mut reader: R, file_path: PathBuf) -> Result<Index
             .or_insert_with(|| PostingList::with_capacity(POSTING_CAPACITY))
             .push(Posting {
                 line_number,
-                byte_offset: unsafe { current.add(2) as usize - window as usize } as Offset,
+                byte_offset: unsafe {
+                    current.add(2) as usize - window as usize
+                } as Offset,
             });
 
         current = unsafe { current.add(1) };
     }
 
     // Handle the last line if it doesn't end with a newline
-    let final_offset = unsafe { current.add(2).min(end) as usize - window as usize };
+    let final_offset =
+        unsafe { current.add(2).min(end) as usize - window as usize };
     if line_start as usize != final_offset {
         index.lines.push(Line {
             start: line_start,
@@ -238,12 +260,12 @@ mod tests {
         let reader = Cursor::new("hello\nworld");
         let index = index_file(reader, PathBuf::new()).unwrap();
         let hel = index.trigrams.get(&[b'h', b'e', b'l']).unwrap();
-        assert_eq!(hel.get(0).unwrap().line_number(), 0);
-        assert_eq!(hel.get(0).unwrap().byte_offset(), 2);
+        assert_eq!(hel.get(0).unwrap().line_number, 0);
+        assert_eq!(hel.get(0).unwrap().byte_offset, 2);
 
         let wor = index.trigrams.get(&[b'w', b'o', b'r']).unwrap();
-        assert_eq!(wor.get(0).unwrap().line_number(), 1);
-        assert_eq!(wor.get(0).unwrap().byte_offset(), 8);
+        assert_eq!(wor.get(0).unwrap().line_number, 1);
+        assert_eq!(wor.get(0).unwrap().byte_offset, 8);
     }
 
     #[test]
@@ -253,8 +275,10 @@ mod tests {
         let index = index_file(reader, PathBuf::new()).unwrap();
 
         // Convert trigrams to patterns for Aho-Corasick
-        let patterns: Vec<&[u8]> = index.trigrams.keys().map(|key| key.as_ref()).collect();
-        let pma: DoubleArrayAhoCorasick<usize> = DoubleArrayAhoCorasick::new(patterns).unwrap();
+        let patterns: Vec<&[u8]> =
+            index.trigrams.keys().map(|key| key.as_ref()).collect();
+        let pma: DoubleArrayAhoCorasick<usize> =
+            DoubleArrayAhoCorasick::new(patterns).unwrap();
 
         // Search for matches in "quick"
         let matches: Vec<_> = pma.find_overlapping_iter(b"quick").collect();

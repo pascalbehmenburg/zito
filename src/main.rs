@@ -1,6 +1,6 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use std::collections::HashMap;
+use std::{collections::HashMap, env::current_dir};
 use zito::index_files;
 
 fn main() -> eyre::Result<()> {
@@ -12,24 +12,31 @@ fn main() -> eyre::Result<()> {
             .iter()
             .map(|(trigram, postings)| (trigram, postings.as_slice()));
 
-        let daac = DoubleArrayAhoCorasick::with_values(trigram_index)
-            .map_err(|e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e))?;
+        let daac = DoubleArrayAhoCorasick::with_values(trigram_index).map_err(
+            |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
+        )?;
 
         let content = std::fs::read_to_string(&index.file_path)?;
 
         let query = "fn main()";
-        let mut matches_by_line: HashMap<(usize, String), Vec<usize>> = HashMap::new();
+        let mut matches_by_line: HashMap<(usize, String), Vec<usize>> =
+            HashMap::new();
 
         for m in daac.find_iter(query) {
             let postings = m.value();
 
             for posting in postings {
-                let line_info = index.lines.get(posting.line_number as usize).unwrap();
-                let line_content = &content[line_info.start as usize..line_info.end as usize];
+                let line_info =
+                    index.lines.get(posting.line_number as usize).unwrap();
+                let line_content =
+                    &content[line_info.start as usize..line_info.end as usize];
 
                 if let Some(query_pos) = line_content.find(query) {
                     matches_by_line
-                        .entry((posting.line_number as usize, line_content.to_string()))
+                        .entry((
+                            posting.line_number as usize,
+                            line_content.to_string(),
+                        ))
                         .or_default()
                         .push(query_pos);
                 }
@@ -46,11 +53,14 @@ fn main() -> eyre::Result<()> {
             let mut current_group = Vec::new();
 
             for &pos in positions.iter() {
-                if current_group.is_empty() || pos - current_group.last().unwrap() <= 3 {
+                if current_group.is_empty()
+                    || pos - current_group.last().unwrap() <= 3
+                {
                     current_group.push(pos);
                 } else {
                     if let Some(start_pos) = current_group.first() {
-                        merged_positions.push((*start_pos, *start_pos + query.len()));
+                        merged_positions
+                            .push((*start_pos, *start_pos + query.len()));
                     }
                     current_group.clear();
                     current_group.push(pos);
@@ -70,6 +80,19 @@ fn main() -> eyre::Result<()> {
                 );
             }
         }
+        let index_dir = current_dir()?.join("index");
+        std::fs::create_dir_all(&index_dir)?;
+
+        let index_path = index_dir.join(
+            index
+                .file_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+                + ".zito",
+        );
+        index.store(index_path)?;
     }
 
     Ok(())
