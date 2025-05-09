@@ -69,6 +69,15 @@ impl<'a> IntoIterator for &'a PostingList {
     }
 }
 
+impl<'a> IntoIterator for &'a ArchivedPostingList {
+    type Item = &'a ArchivedPosting;
+    type IntoIter = std::slice::Iter<'a, ArchivedPosting>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
+}
+
 #[derive(Archive, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct Index {
@@ -82,7 +91,7 @@ pub struct IndexView {
 }
 
 impl IndexView {
-    fn decompress_file(file: File) -> impl Read {
+    fn decompress(file: File) -> impl Read {
         flate2::read::ZlibDecoder::new(file)
     }
 }
@@ -99,7 +108,7 @@ impl TryFrom<PathBuf> for IndexView {
     type Error = eyre::Error;
 
     fn try_from(path: PathBuf) -> Result<Self> {
-        let mut reader = Self::decompress_file(File::open(path)?);
+        let mut reader = Self::decompress(File::open(path)?);
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         Ok(IndexView { buf })
@@ -107,12 +116,12 @@ impl TryFrom<PathBuf> for IndexView {
 }
 
 impl Index {
-    fn compress_file(writer: impl Write) -> impl Write {
+    fn compress(writer: impl Write) -> impl Write {
         flate2::write::ZlibEncoder::new(writer, Compression::best())
     }
 
     pub fn store<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let mut compressor = Self::compress_file(File::create(path).unwrap());
+        let mut compressor = Self::compress(File::create(path).unwrap());
         with_arena(|arena| {
             let mut serializer = rkyv::ser::Serializer::new(
                 IoWriter::new(&mut compressor),
