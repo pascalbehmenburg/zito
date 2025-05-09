@@ -1,7 +1,8 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use std::{collections::HashMap, env::current_dir};
-use zito::{Index, index_files};
+use rkyv::{deserialize, rancor::Error};
+use std::{collections::HashMap, env::current_dir, path::PathBuf};
+use zito::{IndexView, Line, PostingList, index_files};
 
 fn main() -> eyre::Result<()> {
     // example: index files in (e.g. src) dir
@@ -12,8 +13,7 @@ fn main() -> eyre::Result<()> {
     std::fs::create_dir_all(&index_dir)?;
     for index in indices.iter() {
         let index_path = index_dir.join(
-            index
-                .file_path
+            Into::<PathBuf>::into(index.file_path.clone())
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
@@ -24,7 +24,7 @@ fn main() -> eyre::Result<()> {
     }
 
     // example: use walkdir to load index files
-    let mut indices: Vec<Index> = Vec::new();
+    let mut indices: Vec<IndexView> = Vec::new();
     walkdir::WalkDir::new("index")
         .into_iter()
         .filter_map(|entry| {
@@ -37,8 +37,10 @@ fn main() -> eyre::Result<()> {
             }
         })
         .for_each(|path| {
-            indices.push(zito::Index::load(path.clone()).unwrap());
-            println!("Loaded index from {}", path.display());
+            if let Ok(index) = TryInto::<IndexView>::try_into(path.clone()) {
+                indices.push(index);
+                println!("Loaded index from {}", path.display());
+            }
         });
 
     // example: use Aho-Corasick to search for a query
@@ -46,13 +48,18 @@ fn main() -> eyre::Result<()> {
         let trigram_index = index
             .trigrams
             .iter()
-            .map(|(trigram, postings)| (trigram, postings.as_slice()));
+            .map(|(trigram, postings)| (trigram, postings));
 
         let daac = DoubleArrayAhoCorasick::with_values(trigram_index).map_err(
             |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
         )?;
 
-        let content = std::fs::read_to_string(&index.file_path)?;
+        let content = std::fs::read_to_string(PathBuf::from(deserialize::<
+            String,
+            Error,
+        >(
+            &index.file_path,
+        )?))?;
 
         let query = "fn main()";
         let mut matches_by_line: HashMap<(usize, String), Vec<usize>> =
@@ -60,10 +67,12 @@ fn main() -> eyre::Result<()> {
 
         for m in daac.find_iter(query) {
             let postings = m.value();
-
-            for posting in postings {
+            // todo: could we itr over ArchivedPostingList instead?
+            let postings_list = deserialize::<PostingList, Error>(postings)?;
+            for posting in &postings_list {
                 let line_info =
                     index.lines.get(posting.line_number as usize).unwrap();
+                let line_info = deserialize::<Line, Error>(line_info)?;
                 let line_content =
                     &content[line_info.start as usize..line_info.end as usize];
 
@@ -109,7 +118,7 @@ fn main() -> eyre::Result<()> {
             if !merged_positions.is_empty() {
                 println!(
                     "{}:{}:{}: {}",
-                    index.file_path.display(),
+                    index.file_path,
                     line_number,
                     merged_positions[0].0,
                     highlight_matches(&line_content, &merged_positions)

@@ -1,31 +1,37 @@
 use eyre::{Result, eyre};
 use flate2::Compression;
-use serde::{Deserialize, Serialize};
+use rkyv::{
+    Archive, Deserialize, Serialize, access_unchecked, api::serialize_using,
+    ser::writer::IoWriter, util::with_arena,
+};
 use std::{
     collections::HashMap,
     fs::File,
     io::{BufRead, Read, Write},
+    ops::Deref,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
-
 pub type FileId = u32;
 pub type Offset = u32;
 pub type Trigram = [u8; 3];
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Debug, Deserialize, Serialize)]
+#[rkyv(derive(Debug))]
 pub struct Line {
     pub start: Offset,
     pub end: Offset,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Debug, Deserialize, Serialize)]
+#[rkyv(derive(Debug))]
 pub struct Posting {
     pub line_number: u32,
     pub byte_offset: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Debug, Deserialize, Serialize)]
+#[rkyv(derive(Debug))]
 pub struct PostingList {
     data: Vec<Posting>,
 }
@@ -63,11 +69,41 @@ impl<'a> IntoIterator for &'a PostingList {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Archive, Debug, Deserialize, Serialize)]
+#[rkyv(derive(Debug))]
 pub struct Index {
-    pub file_path: PathBuf,
+    pub file_path: String,
     pub lines: Vec<Line>,
     pub trigrams: HashMap<Trigram, PostingList>,
+}
+
+pub struct IndexView {
+    buf: Vec<u8>,
+}
+
+impl IndexView {
+    fn decompress_file(file: File) -> impl Read {
+        flate2::read::ZlibDecoder::new(file)
+    }
+}
+
+impl Deref for IndexView {
+    type Target = ArchivedIndex;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { access_unchecked::<ArchivedIndex>(&self.buf) }
+    }
+}
+
+impl TryFrom<PathBuf> for IndexView {
+    type Error = eyre::Error;
+
+    fn try_from(path: PathBuf) -> Result<Self> {
+        let mut reader = Self::decompress_file(File::open(path)?);
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        Ok(IndexView { buf })
+    }
 }
 
 impl Index {
@@ -75,25 +111,17 @@ impl Index {
         flate2::write::ZlibEncoder::new(writer, Compression::best())
     }
 
-    fn decompress_file(reader: impl Read) -> impl Read {
-        flate2::read::ZlibDecoder::new(reader)
-    }
-
     pub fn store<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        bincode::serde::encode_into_std_write(
-            self,
-            &mut Self::compress_file(File::create(path)?),
-            bincode::config::standard(),
-        )?;
+        let mut compressor = Self::compress_file(File::create(path).unwrap());
+        with_arena(|arena| {
+            let mut serializer = rkyv::ser::Serializer::new(
+                IoWriter::new(&mut compressor),
+                arena.acquire(),
+                rkyv::ser::sharing::Share::new(),
+            );
+            serialize_using::<_, rkyv::rancor::Error>(self, &mut serializer)
+        })?;
         Ok(())
-    }
-
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let index = bincode::serde::decode_from_std_read(
-            &mut Self::decompress_file(File::open(path)?),
-            bincode::config::standard(),
-        )?;
-        Ok(index)
     }
 }
 
@@ -140,7 +168,7 @@ pub fn index_file<R: BufRead>(
     let estimated_unique = (num_trigrams / 2).min(max_possible_trigrams);
 
     let mut index = Index {
-        file_path,
+        file_path: file_path.to_string_lossy().to_string(),
         // Assume average line length of 80
         lines: Vec::with_capacity((content.len() / 40).max(1024)),
         trigrams: HashMap::with_capacity(estimated_unique),
