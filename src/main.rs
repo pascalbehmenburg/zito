@@ -1,8 +1,7 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use rkyv::{deserialize, rancor::Error};
 use std::{collections::HashMap, env::current_dir, path::PathBuf};
-use zito::{IndexView, Line, PostingList, index_files};
+use zito::{IndexView, Line, index_files};
 
 fn main() -> eyre::Result<()> {
     // example: index files in (e.g. src) dir
@@ -51,12 +50,9 @@ fn main() -> eyre::Result<()> {
             |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
         )?;
 
-        let content = std::fs::read_to_string(PathBuf::from(deserialize::<
-            String,
-            Error,
-        >(
-            &index.file_path,
-        )?))?;
+        let content = std::fs::read_to_string(PathBuf::from(
+            index.file_path.to_string(),
+        ))?;
 
         let query = "fn main()";
         let mut matches_by_line: HashMap<(usize, String), Vec<usize>> =
@@ -64,19 +60,19 @@ fn main() -> eyre::Result<()> {
 
         for m in daac.find_iter(query) {
             let postings = m.value();
-            // todo: could we itr over ArchivedPostingList instead?
-            let postings_list = deserialize::<PostingList, Error>(postings)?;
-            for posting in &postings_list {
-                let line_info =
-                    index.lines.get(posting.line_number as usize).unwrap();
-                let line_info = deserialize::<Line, Error>(line_info)?;
+            for posting in postings {
+                let line_number_idx: usize =
+                    posting.line_number.to_native() as usize;
+                let line_info: &rkyv::Archived<Line> =
+                    index.lines.get(line_number_idx).unwrap();
                 let line_content =
-                    &content[line_info.start as usize..line_info.end as usize];
+                    &content[usize::try_from(line_info.start.to_native())?
+                        ..usize::try_from(line_info.end.to_native())?];
 
                 if let Some(query_pos) = line_content.find(query) {
                     matches_by_line
                         .entry((
-                            posting.line_number as usize,
+                            Into::<u32>::into(posting.line_number) as usize,
                             line_content.to_string(),
                         ))
                         .or_default()
