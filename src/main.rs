@@ -45,10 +45,7 @@ fn main() -> eyre::Result<()> {
 
     // example: use Aho-Corasick to search for a query
     for index in indices.iter() {
-        let trigram_index = index
-            .trigrams
-            .iter()
-            .map(|(trigram, postings)| (trigram, postings));
+        let trigram_index = index.trigrams.iter();
 
         let daac = DoubleArrayAhoCorasick::with_values(trigram_index).map_err(
             |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
