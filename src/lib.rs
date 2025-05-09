@@ -1,8 +1,10 @@
 use eyre::{Result, eyre};
+use flate2::Compression;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    io::BufRead,
+    fs::File,
+    io::{BufRead, Read, Write},
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
@@ -69,22 +71,26 @@ pub struct Index {
 }
 
 impl Index {
+    fn compress_file(writer: impl Write) -> impl Write {
+        flate2::write::ZlibEncoder::new(writer, Compression::best())
+    }
+
+    fn decompress_file(reader: impl Read) -> impl Read {
+        flate2::read::ZlibDecoder::new(reader)
+    }
+
     pub fn store<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let file = std::fs::File::create(path)?;
-        let mut writer = std::io::BufWriter::new(file);
         bincode::serde::encode_into_std_write(
             self,
-            &mut writer,
+            &mut Self::compress_file(File::create(path)?),
             bincode::config::standard(),
         )?;
         Ok(())
     }
 
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut reader = std::io::BufReader::new(file);
         let index = bincode::serde::decode_from_std_read(
-            &mut reader,
+            &mut Self::decompress_file(File::open(path)?),
             bincode::config::standard(),
         )?;
         Ok(index)
