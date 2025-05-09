@@ -896,6 +896,5 @@ dependencies = [
  "flate2",
  "quickcheck",
  "rkyv",
- "serde",
  "walkdir",
 ]
