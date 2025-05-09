@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bincode = { version = "2.0.1", features = ["serde"] }
 colored = "3.0.0"
 daachorse = "1.0.0"
 eyre = "0.6.12"
