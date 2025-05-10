@@ -104,10 +104,10 @@ impl Deref for IndexView {
     }
 }
 
-impl TryFrom<PathBuf> for IndexView {
+impl TryFrom<&Path> for IndexView {
     type Error = eyre::Error;
 
-    fn try_from(path: PathBuf) -> Result<Self> {
+    fn try_from(path: &Path) -> Result<Self> {
         let mut reader = Self::decompress(File::open(path)?);
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;

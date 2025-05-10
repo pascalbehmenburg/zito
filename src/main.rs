@@ -36,7 +36,7 @@ fn main() -> eyre::Result<()> {
             }
         })
         .for_each(|path| {
-            if let Ok(index) = TryInto::<IndexView>::try_into(path.clone()) {
+            if let Ok(index) = TryInto::<IndexView>::try_into(path.as_path()) {
                 indices.push(index);
                 println!("Loaded index from {}", path.display());
             }
