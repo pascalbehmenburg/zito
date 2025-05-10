@@ -21,27 +21,38 @@ fn bench_search(c: &mut Criterion) {
     let index = index_file(reader, PathBuf::new()).unwrap();
 
     // Convert the new index format to the format needed for Aho-Corasick
-    let mut trigram_index: HashMap<Trigram, Vec<(FileId, Offset)>> = HashMap::new();
+    let mut trigram_index: HashMap<Trigram, Vec<(FileId, Offset)>> =
+        HashMap::new();
     for (trigram, postings) in index.trigrams {
         let entries = trigram_index.entry(trigram).or_default();
         for posting in postings.as_slice() {
-            entries.push((0, posting.byte_offset())); // Using 0 as file_id since we have only one file
+            entries.push((0, posting.byte_offset)) // Using 0 as file_id since we have only one file
         }
     }
 
-    let patterns: Vec<&[u8]> = trigram_index.keys().map(|key| key.as_ref()).collect();
-    let pma: DoubleArrayAhoCorasick<usize> = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    let patterns: Vec<&[u8]> =
+        trigram_index.keys().map(|key| key.as_ref()).collect();
+    let pma: DoubleArrayAhoCorasick<usize> =
+        DoubleArrayAhoCorasick::new(patterns).unwrap();
 
     c.bench_function("search_many_occurences", |b| {
-        b.iter(|| black_box(pma.find_overlapping_iter(black_box(b"test")).count()))
+        b.iter(|| {
+            black_box(pma.find_overlapping_iter(black_box(b"test")).count())
+        })
     });
 
     c.bench_function("search_less_occurences", |b| {
-        b.iter(|| black_box(pma.find_overlapping_iter(black_box(b"def main()")).count()))
+        b.iter(|| {
+            black_box(
+                pma.find_overlapping_iter(black_box(b"def main()")).count(),
+            )
+        })
     });
 
     c.bench_function("search_first_occurence", |b| {
-        b.iter(|| black_box(pma.find_overlapping_iter(black_box(b"arxiv")).count()));
+        b.iter(|| {
+            black_box(pma.find_overlapping_iter(black_box(b"arxiv")).count())
+        });
     });
 
     c.bench_function("search_pattern", |b| {
