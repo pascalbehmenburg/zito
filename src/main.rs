@@ -1,9 +1,24 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use std::{collections::HashMap, env::current_dir, path::PathBuf};
-use zito::{IndexView, Line, index_files};
+use std::{collections::HashMap, env::args, env::current_dir, path::PathBuf};
+use zito::{IndexView, Line, extract_symbols, index_files};
 
 fn main() -> eyre::Result<()> {
+    let args: Vec<String> = args().collect();
+
+    let file_path = "./src/lib.rs";
+    println!("Parsing file: {}", file_path);
+    let lang = tree_sitter_rust::LANGUAGE;
+    let query_scm = "./queries/rust.scm";
+    let source_code = std::fs::read_to_string(file_path)?;
+    let symbols = extract_symbols(&source_code, lang.into(), query_scm);
+    for symbol in symbols {
+        println!(
+            "Name: {}, Kind: {}, Range: {:?}",
+            symbol.name, symbol.kind, symbol.byte_range
+        );
+    }
+
     // example: index files in (e.g. src) dir
     let indices = index_files("src")?;
 

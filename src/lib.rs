@@ -1,3 +1,6 @@
+mod treesitter;
+pub use treesitter::extract_symbols;
+
 use eyre::{Result, eyre};
 use flate2::Compression;
 use rkyv::{
