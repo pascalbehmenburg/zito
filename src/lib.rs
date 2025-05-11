@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
+
 pub type FileId = u32;
 pub type Offset = u32;
 pub type Trigram = [u8; 3];
