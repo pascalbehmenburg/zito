@@ -1,11 +1,9 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use std::{collections::HashMap, env::args, env::current_dir, path::PathBuf};
+use std::{collections::HashMap, env::current_dir, path::PathBuf};
 use zito::{IndexView, Line, extract_symbols, index_files};
 
 fn main() -> eyre::Result<()> {
-    let args: Vec<String> = args().collect();
-
     let file_path = "./src/lib.rs";
     println!("Parsing file: {}", file_path);
     let lang = tree_sitter_rust::LANGUAGE;
