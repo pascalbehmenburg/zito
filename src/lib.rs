@@ -1,11 +1,11 @@
-use fxhash::FxHashMap;
-
 use eyre::{Result, eyre};
 use flate2::Compression;
+use fxhash::FxHashMap;
 use rkyv::{
     Archive, Deserialize, Serialize, access_unchecked, api::serialize_using,
     ser::writer::IoWriter, util::with_arena,
 };
+use smallvec::SmallVec;
 use std::{
     fs::File,
     io::{BufRead, Read, Write},
@@ -32,17 +32,19 @@ pub struct Posting {
     pub byte_offset: u32,
 }
 
+const POSTING_CAPACITY: usize = 16;
+
 #[derive(Archive, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct PostingList {
-    data: Vec<Posting>,
+    data: SmallVec<[Posting; POSTING_CAPACITY]>,
 }
 
 impl PostingList {
     #[inline]
-    fn with_capacity(capacity: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            data: Vec::with_capacity(capacity),
+            data: SmallVec::with_capacity(capacity),
         }
     }
 
@@ -188,7 +190,7 @@ pub fn create_trigram_idx<R: BufRead>(
 
     let mut line_number = 0;
     let mut line_start = 0;
-    const POSTING_CAPACITY: usize = 64;
+
     let mut posting_lists: FxHashMap<Trigram, PostingList> =
         FxHashMap::with_capacity_and_hasher(
             estimated_unique,

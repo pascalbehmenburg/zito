@@ -7,15 +7,19 @@ edition = "2024"
 colored = "3.0.0"
 daachorse = "1.0.0"
 eyre = "0.6.12"
-flate2 = { version = "1.1.1", features = ["cloudflare_zlib"] }
 fxhash = "0.2.1"
 quickcheck = "1.0.3"
-rkyv = "0.8.10"
+rkyv = {version = "0.8.10", features = ["smallvec-1", "aligned", "pointer_width_32", "little_endian", "std"], default-features = false}
 walkdir = "2.3.3"
+# union feature makes smallvec track state in only one machine word
+# therefore having potentially no space overhead compared to Vec
+smallvec = { version = "1.15.0", features = ["union"] }
+# Faster impl of zlib compression/decompression by cloudflare 
+# (can only be used when no other crate depends on other zlib impls)
+flate2 = { version = "1.1.1", features = ["cloudflare_zlib"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
-
 
 [[bench]]
 name = "file_indexing"
