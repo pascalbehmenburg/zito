@@ -17,6 +17,7 @@ smallvec = { version = "1.15.0", features = ["union"] }
 # Faster impl of zlib compression/decompression by cloudflare 
 # (can only be used when no other crate depends on other zlib impls)
 flate2 = { version = "1.1.1", features = ["cloudflare_zlib"] }
+mimalloc = {version = "0.1.46", features = ["secure"] }
 
 [dev-dependencies]
 criterion = "0.5.1"

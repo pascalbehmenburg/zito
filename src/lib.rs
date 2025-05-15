@@ -14,6 +14,11 @@ use std::{
 };
 use walkdir::WalkDir;
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 pub type FileId = u32;
 pub type Offset = u32;
 pub type Trigram = [u8; 3];
