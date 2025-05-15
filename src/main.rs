@@ -1,6 +1,7 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
-use std::{collections::HashMap, env::current_dir, path::PathBuf};
+use fxhash::FxHashMap;
+use std::{env::current_dir, path::PathBuf};
 use zito::{IndexView, Line, index_files};
 
 fn main() -> eyre::Result<()> {
@@ -55,8 +56,8 @@ fn main() -> eyre::Result<()> {
         ))?;
 
         let query = "fn main()";
-        let mut matches_by_line: HashMap<(usize, String), Vec<usize>> =
-            HashMap::new();
+        let mut matches_by_line: FxHashMap<(usize, String), Vec<usize>> =
+            FxHashMap::default();
 
         for m in daac.find_iter(query) {
             let postings = m.value();
