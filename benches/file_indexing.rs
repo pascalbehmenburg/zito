@@ -1,7 +1,8 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use daachorse::DoubleArrayAhoCorasick;
-use std::{collections::HashMap, io::Cursor, path::PathBuf};
-use zito::{FileId, Offset, Trigram, index_file};
+use fxhash::FxHashMap;
+use std::{io::Cursor, path::PathBuf};
+use zito::{FileId, Offset, Trigram, create_trigram_idx};
 
 fn bench_index_file(c: &mut Criterion) {
     let content = include_str!("data.txt");
@@ -10,7 +11,7 @@ fn bench_index_file(c: &mut Criterion) {
     c.bench_function("index_file", |b| {
         b.iter(|| {
             let reader = Cursor::new(black_box(data));
-            black_box(index_file(reader, PathBuf::new()).unwrap());
+            black_box(create_trigram_idx(reader, PathBuf::new()).unwrap());
         });
     });
 }
@@ -18,11 +19,11 @@ fn bench_index_file(c: &mut Criterion) {
 fn bench_search(c: &mut Criterion) {
     let sample_text = include_str!("data.txt");
     let reader = Cursor::new(sample_text.as_bytes());
-    let index = index_file(reader, PathBuf::new()).unwrap();
+    let index = create_trigram_idx(reader, PathBuf::new()).unwrap();
 
     // Convert the new index format to the format needed for Aho-Corasick
-    let mut trigram_index: HashMap<Trigram, Vec<(FileId, Offset)>> =
-        HashMap::new();
+    let mut trigram_index: FxHashMap<Trigram, Vec<(FileId, Offset)>> =
+        FxHashMap::default();
     for (trigram, postings) in index.trigrams {
         let entries = trigram_index.entry(trigram).or_default();
         for posting in postings.as_slice() {

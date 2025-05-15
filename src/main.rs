@@ -1,18 +1,9 @@
 use colored::*;
 use daachorse::DoubleArrayAhoCorasick;
 use std::{collections::HashMap, env::current_dir, path::PathBuf};
-use zito::{IndexView, Line, index_files, symbol_index_from_folder};
+use zito::{IndexView, Line, index_files};
 
 fn main() -> eyre::Result<()> {
-    let folder_symbol_idx = symbol_index_from_folder("src")?;
-    for file_symbol_idx in folder_symbol_idx {
-        for symbol in file_symbol_idx.symbols {
-            println!(
-                "Name: {}, Kind: {}, Range: {:?}",
-                symbol.name, symbol.kind, symbol.byte_range
-            );
-        }
-    }
     // example: index files in (e.g. src) dir
     let indices = index_files("src")?;
 

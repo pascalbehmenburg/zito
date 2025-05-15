@@ -1,5 +1,3 @@
-mod treesitter;
-pub use treesitter::{extract_symbols, symbol_index_from_folder};
 
 use eyre::{Result, eyre};
 use flate2::Compression;
