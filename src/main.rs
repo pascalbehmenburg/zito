@@ -16,6 +16,8 @@ fn main() -> Result<()> {
     println!("Creating index from current directory...");
     let index = Index::new_from_path("./src")?;
 
+    index.interned_paths.print_detailed_stats();
+
     let index_dir = current_dir()?.join("index");
     std::fs::create_dir_all(&index_dir)?;
     let index_path = index_dir.join("main.zito");
