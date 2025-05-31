@@ -178,7 +178,7 @@ impl<'a> IntoIterator for &'a ArchivedPostingList {
 /// The main search index containing all indexed data.
 ///
 /// This structure holds the trigram inverted index, file path mappings,
-/// and line boundary information needed for fast text search.
+/// line boundary information, and file contents needed for fast text search.
 #[derive(Archive, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct Index {
@@ -186,6 +186,8 @@ pub struct Index {
     pub interned_paths: StringInterner,
     /// Maps file IDs to their line boundary information.
     pub lines: FxHashMap<InternedStringId, Vec<Line>>,
+    /// Maps file IDs to their actual content.
+    pub file_contents: FxHashMap<InternedStringId, Vec<u8>>,
     /// Inverted index mapping trigrams to their posting lists.
     pub trigrams: FxHashMap<Trigram, PostingList>,
 }
@@ -270,7 +272,7 @@ impl IndexView {
                 .push(posting);
         }
 
-        // Cache file contents to avoid reading the same file multiple times
+        // Cache file contents to avoid processing the same file multiple times
         let mut file_cache: FxHashMap<String, String> = FxHashMap::default();
 
         for ((file_id, line_number), _postings) in grouped_by_file_line {
@@ -285,12 +287,23 @@ impl IndexView {
             {
                 content.clone()
             } else {
-                match std::fs::read_to_string(&file_path) {
-                    Ok(content) => {
-                        file_cache.insert(file_path.clone(), content.clone());
-                        content
+                // Get content from the stored file contents in the index
+                let file_id_for_content = ArchivedInternedStringId(
+                    rkyv::Archived::<u32>::from_native(file_id),
+                );
+                if let Some(stored_content) =
+                    self.file_contents.get(&file_id_for_content)
+                {
+                    match String::from_utf8(stored_content.to_vec()) {
+                        Ok(content) => {
+                            file_cache
+                                .insert(file_path.clone(), content.clone());
+                            content
+                        }
+                        Err(_) => continue, // Skip files with invalid UTF-8
                     }
-                    Err(_) => continue,
+                } else {
+                    continue; // Skip if content not found in index
                 }
             };
 
@@ -370,6 +383,7 @@ impl Index {
         Index {
             interned_paths: StringInterner::new(),
             lines: FxHashMap::default(),
+            file_contents: FxHashMap::default(),
             trigrams: FxHashMap::default(),
         }
     }
@@ -514,6 +528,9 @@ impl Index {
                 end: final_offset as Offset,
             });
         }
+
+        // Store the file content in the index
+        index.file_contents.insert(file_id, content);
 
         Ok(())
     }
@@ -690,7 +707,7 @@ mod tests {
 
         for (filename, content) in &test_files {
             let file_id = index.interned_paths.intern(filename);
-            let reader = Cursor::new(content.as_bytes());
+            let reader = std::io::Cursor::new(content.as_bytes());
             Index::add_file_to_index(&mut index, reader, file_id).unwrap();
         }
 
@@ -777,11 +794,11 @@ mod tests {
         let mut index = Index::new();
 
         let file_id1 = index.interned_paths.intern("newlines.txt");
-        let reader1 = Cursor::new("\n\n\n");
+        let reader1 = std::io::Cursor::new("\n\n\n");
         Index::add_file_to_index(&mut index, reader1, file_id1).unwrap();
 
         let file_id_short = index.interned_paths.intern("too_short.txt");
-        let reader_short = Cursor::new("ab");
+        let reader_short = std::io::Cursor::new("ab");
         assert!(
             Index::add_file_to_index(&mut index, reader_short, file_id_short)
                 .is_err(),
@@ -789,11 +806,11 @@ mod tests {
         );
 
         let file_id2 = index.interned_paths.intern("minimal.txt");
-        let reader2 = Cursor::new("abc");
+        let reader2 = std::io::Cursor::new("abc");
         Index::add_file_to_index(&mut index, reader2, file_id2).unwrap();
 
         let file_id3 = index.interned_paths.intern("special.txt");
-        let reader3 = Cursor::new("café naïve résumé");
+        let reader3 = std::io::Cursor::new("café naïve résumé");
         Index::add_file_to_index(&mut index, reader3, file_id3).unwrap();
 
         let temp_path = std::env::temp_dir().join("test_edge_index.bin");
