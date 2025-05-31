@@ -82,24 +82,11 @@ impl ArchivedStringInterner {
 /// Unique identifier for a file in the index.
 pub type FileId = u32;
 
-/// Byte offset within a file or line.
+/// Byte offset within a file.
 pub type Offset = u32;
 
 /// A three-byte sequence used for trigram indexing.
 pub type Trigram = [u8; 3];
-
-/// Represents a line within a file, storing its byte boundaries.
-///
-/// Lines are tracked to enable efficient line-based search results
-/// without having to re-parse files during search operations.
-#[derive(Archive, Debug, Deserialize, Serialize)]
-#[rkyv(derive(Debug))]
-pub struct Line {
-    /// Starting byte offset of the line within the file.
-    pub start: Offset,
-    /// Ending byte offset of the line within the file (exclusive).
-    pub end: Offset,
-}
 
 /// A posting entry that records where a trigram appears in the corpus.
 ///
@@ -178,14 +165,12 @@ impl<'a> IntoIterator for &'a ArchivedPostingList {
 /// The main search index containing all indexed data.
 ///
 /// This structure holds the trigram inverted index, file path mappings,
-/// line boundary information, and file contents needed for fast text search.
+/// and file contents needed for fast text search.
 #[derive(Archive, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct Index {
     /// Interner for file paths to reduce memory usage.
     pub interned_paths: StringInterner,
-    /// Maps file IDs to their line boundary information.
-    pub lines: FxHashMap<InternedStringId, Vec<Line>>,
     /// Maps file IDs to their actual content.
     pub file_contents: FxHashMap<InternedStringId, Vec<u8>>,
     /// Inverted index mapping trigrams to their posting lists.
@@ -382,7 +367,6 @@ impl Index {
     pub fn new() -> Self {
         Index {
             interned_paths: StringInterner::new(),
-            lines: FxHashMap::default(),
             file_contents: FxHashMap::default(),
             trigrams: FxHashMap::default(),
         }
@@ -484,7 +468,6 @@ impl Index {
         }
 
         let mut line_number = 0;
-        let mut line_start = 0;
 
         let window = content.as_ptr();
         let end = unsafe { window.add(content.len()) };
@@ -493,12 +476,7 @@ impl Index {
             let c = unsafe { *current };
 
             if c == b'\n' {
-                index.lines.entry(file_id).or_default().push(Line {
-                    start: line_start,
-                    end: (current as usize - window as usize) as Offset,
-                });
                 line_number += 1;
-                line_start = (current as usize - window as usize + 1) as Offset;
             }
 
             let trigram =
@@ -517,16 +495,6 @@ impl Index {
                 });
 
             current = unsafe { current.add(1) };
-        }
-
-        // Handle the last line if it doesn't end with a newline
-        let final_offset =
-            unsafe { current.add(2).min(end) as usize - window as usize };
-        if line_start as usize != final_offset {
-            index.lines.entry(file_id).or_default().push(Line {
-                start: line_start,
-                end: final_offset as Offset,
-            });
         }
 
         // Store the file content in the index
@@ -587,20 +555,21 @@ mod tests {
     }
 
     #[test]
-    fn test_line_tracking() {
-        let reader = Cursor::new("first\nsecond\nthird");
+    fn test_content_storage() {
+        let reader = std::io::Cursor::new("first\nsecond\nthird");
         let index = create_test_index(reader).unwrap();
 
         let file_id = index.interned_paths.map.get("test_file.txt").unwrap();
-        let lines = index.lines.get(file_id).unwrap();
+        let content = index.file_contents.get(file_id).unwrap();
 
+        let content_str = String::from_utf8(content.clone()).unwrap();
+        assert_eq!(content_str, "first\nsecond\nthird");
+
+        let lines: Vec<&str> = content_str.lines().collect();
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0].start, 0);
-        assert_eq!(lines[0].end, 5);
-        assert_eq!(lines[1].start, 6);
-        assert_eq!(lines[1].end, 12);
-        assert_eq!(lines[2].start, 13);
-        assert_eq!(lines[2].end, 18);
+        assert_eq!(lines[0], "first");
+        assert_eq!(lines[1], "second");
+        assert_eq!(lines[2], "third");
     }
 
     #[test]
