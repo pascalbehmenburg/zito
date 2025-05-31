@@ -1,139 +1,112 @@
 use colored::*;
-use daachorse::DoubleArrayAhoCorasick;
-use fxhash::FxHashMap;
-use std::{env::current_dir, path::PathBuf};
-use zito::{IndexView, Line, index_files};
+use eyre::Result;
+use std::{env::current_dir, time::SystemTime};
+use zito::{Index, IndexView};
 
-fn main() -> eyre::Result<()> {
-    // example: index files in (e.g. src) dir
-    let indices = index_files("src")?;
+/// Time the execution of a function and return the result and the duration in milliseconds.
+fn timeit<F: Fn() -> T, T>(f: F) -> (T, u128) {
+    let start = SystemTime::now();
+    let result = f();
+    let end = SystemTime::now();
+    let duration = end.duration_since(start).unwrap();
+    (result, duration.as_millis())
+}
 
-    // example: create index cache directory
+fn main() -> Result<()> {
+    println!("Creating index from current directory...");
+    let index = Index::new_from_path("./src")?;
+
     let index_dir = current_dir()?.join("index");
     std::fs::create_dir_all(&index_dir)?;
-    for index in indices.iter() {
-        let index_path = index_dir.join(
-            Into::<PathBuf>::into(index.file_path.clone())
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-                + ".zito",
-        );
-        index.store(index_path)?;
-    }
+    let index_path = index_dir.join("main.zito");
+    index.store(&index_path)?;
+    println!("Index stored to {}", index_path.display());
 
-    // example: use walkdir to load index files
-    let mut indices: Vec<IndexView> = Vec::new();
-    walkdir::WalkDir::new("index")
-        .into_iter()
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension()?.to_str()? == "zito" {
-                Some(path.to_path_buf())
-            } else {
-                None
-            }
-        })
-        .for_each(|path| {
-            if let Ok(index) = TryInto::<IndexView>::try_into(path.as_path()) {
-                indices.push(index);
-                println!("Loaded index from {}", path.display());
-            }
-        });
+    let index_view = IndexView::try_from(index_path.as_path())?;
+    println!("Index loaded successfully");
 
-    // example: use Aho-Corasick to search for a query
-    for index in indices.iter() {
-        let trigram_index = index.trigrams.iter();
+    let queries = vec!["fn main", "use", "struct", "impl"];
 
-        let daac = DoubleArrayAhoCorasick::with_values(trigram_index).map_err(
-            |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
-        )?;
+    for query in queries {
+        println!("\nSearching for: '{}'", query.red().bold());
 
-        let content = std::fs::read_to_string(PathBuf::from(
-            index.file_path.to_string(),
-        ))?;
+        let (results, duration) = timeit(|| index_view.search(query));
+        let results = results?;
 
-        let query = "fn main()";
-        let mut matches_by_line: FxHashMap<(usize, String), Vec<usize>> =
-            FxHashMap::default();
-
-        for m in daac.find_iter(query) {
-            let postings = m.value();
-            for posting in postings {
-                let line_number_idx: usize =
-                    posting.line_number.to_native() as usize;
-                let line_info: &rkyv::Archived<Line> =
-                    index.lines.get(line_number_idx).unwrap();
-                let line_content =
-                    &content[usize::try_from(line_info.start.to_native())?
-                        ..usize::try_from(line_info.end.to_native())?];
-
-                if let Some(query_pos) = line_content.find(query) {
-                    matches_by_line
-                        .entry((
-                            Into::<u32>::into(posting.line_number) as usize,
-                            line_content.to_string(),
-                        ))
-                        .or_default()
-                        .push(query_pos);
-                }
-            }
+        if results.is_empty() {
+            println!("\tNo matches found");
+            continue;
         }
 
-        let mut matches: Vec<_> = matches_by_line.into_iter().collect();
-        matches.sort_by_key(|((line_num, _), _)| *line_num);
+        println!();
+        println!(
+            "Found {} matches in {} milliseconds:",
+            results.len(),
+            duration
+        );
 
-        for ((line_number, line_content), mut positions) in matches {
-            positions.sort_unstable();
+        // group results by file and sort by line number
+        let mut file_results: std::collections::HashMap<String, Vec<_>> =
+            std::collections::HashMap::new();
 
-            let mut merged_positions = Vec::new();
-            let mut current_group = Vec::new();
+        for result in results {
+            file_results
+                .entry(result.file_path.clone())
+                .or_insert_with(Vec::new)
+                .push(result);
+        }
 
-            for &pos in positions.iter() {
-                if current_group.is_empty()
-                    || pos - current_group.last().unwrap() <= 3
-                {
-                    current_group.push(pos);
-                } else {
-                    if let Some(start_pos) = current_group.first() {
-                        merged_positions
-                            .push((*start_pos, *start_pos + query.len()));
-                    }
-                    current_group.clear();
-                    current_group.push(pos);
-                }
-            }
-            if let Some(start_pos) = current_group.first() {
-                merged_positions.push((*start_pos, *start_pos + query.len()));
-            }
+        let mut sorted_files: Vec<_> = file_results.into_iter().collect();
+        sorted_files.sort_by(|a, b| a.0.cmp(&b.0));
 
-            if !merged_positions.is_empty() {
+        for (file_path, mut file_matches) in sorted_files {
+            file_matches.sort_by_key(|r| r.line_number);
+
+            for result in file_matches.iter().take(5) {
+                // limit to first 5 matches per file
                 println!(
                     "{}:{}:{}: {}",
-                    index.file_path,
-                    line_number,
-                    merged_positions[0].0,
-                    highlight_matches(&line_content, &merged_positions)
+                    file_path.green(),
+                    result.line_number.to_string().yellow(),
+                    result.match_start.to_string().blue(),
+                    highlight_match(
+                        &result.line_text,
+                        query,
+                        result.match_start as usize
+                    )
                 );
             }
         }
     }
 
+    std::fs::remove_file(&index_path).ok();
+    std::fs::remove_dir(&index_dir).ok();
+
     Ok(())
 }
 
-fn highlight_matches(line: &str, ranges: &[(usize, usize)]) -> String {
-    let mut result = String::with_capacity(line.len());
-    let mut pos = 0;
+fn highlight_match(line: &str, query: &str, match_start: usize) -> String {
+    let match_end = match_start + query.len();
 
-    for &(start, end) in ranges {
-        result.push_str(&line[pos..start]);
-        result.push_str(&line[start..end.min(line.len())].red().to_string());
-        pos = end;
+    // ensure we don't go out of bounds
+    if match_start >= line.len() {
+        return line.to_string();
     }
 
-    result.push_str(&line[pos..]);
+    let actual_match_end = match_end.min(line.len());
+    let mut result = String::new();
+
+    if match_start > 0 {
+        result.push_str(&line[..match_start]);
+    }
+
+    result.push_str(
+        &line[match_start..actual_match_end].red().bold().to_string(),
+    );
+
+    if actual_match_end < line.len() {
+        result.push_str(&line[actual_match_end..]);
+    }
+
     result
 }
