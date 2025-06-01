@@ -42,7 +42,7 @@ pub struct ComponentId(u32);
 #[derive(
     Archive, Deserialize, Serialize, Copy, Clone, Debug, PartialEq, Eq, Hash,
 )]
-#[rkyv(derive(Debug, Hash, PartialEq, Eq))]
+#[rkyv(derive(Debug, Hash, PartialEq, Eq, Clone, Copy))]
 pub struct InternedPathId(u32);
 
 /// Advanced path interner optimized for file system hierarchies.
@@ -375,6 +375,7 @@ pub struct SearchResult {
 /// without requiring deserialization of the entire data structure.
 pub struct IndexView {
     buf: Vec<u8>,
+    automaton: DoubleArrayAhoCorasick<&'static ArchivedPostingList>,
 }
 
 impl IndexView {
@@ -393,23 +394,16 @@ impl IndexView {
     ///
     /// # Errors
     ///
-    /// Returns an error if the Aho-Corasick automaton cannot be built
-    /// or if there are issues reading the indexed files.
+    /// Returns an error if there are issues reading the indexed files.
     pub fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
         if query.len() < 3 {
             return Ok(Vec::new());
         }
 
-        let trigram_index = self.trigrams.iter();
-
-        let daac = DoubleArrayAhoCorasick::with_values(trigram_index).map_err(
-            |e| eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e),
-        )?;
-
         let mut results = Vec::new();
 
         let mut candidate_postings = Vec::new();
-        for m in daac.find_iter(query.as_bytes()) {
+        for m in self.automaton.find_iter(query.as_bytes()) {
             let posting_list = m.value();
             for posting in posting_list {
                 candidate_postings.push(posting);
@@ -420,46 +414,58 @@ impl IndexView {
             return Ok(Vec::new());
         }
 
-        let mut grouped_by_file_line: FxHashMap<
-            (u32, u32),
-            Vec<&ArchivedPosting>,
+        // Group postings by file first, then by line within each file
+        let mut files_to_lines: FxHashMap<
+            ArchivedInternedPathId,
+            FxHashMap<<u32 as Archive>::Archived, Vec<&ArchivedPosting>>,
         > = FxHashMap::default();
 
         for posting in candidate_postings {
-            let file_id = posting.file_id.0.to_native();
-            let line_number = posting.line_number.to_native();
-            grouped_by_file_line
-                .entry((file_id, line_number))
-                .or_insert_with(Vec::new)
+            let file_id = posting.file_id;
+            let line_number = posting.line_number;
+            files_to_lines
+                .entry(file_id)
+                .or_default()
+                .entry(line_number)
+                .or_default()
                 .push(posting);
         }
 
-        // Cache file contents to avoid processing the same file multiple times
-        let mut file_cache: FxHashMap<String, String> = FxHashMap::default();
+        // Cache file contents, paths, and line boundaries to avoid reprocessing
+        let mut file_content_cache: FxHashMap<ArchivedInternedPathId, &str> =
+            FxHashMap::default();
+        let mut file_path_cache: FxHashMap<ArchivedInternedPathId, String> =
+            FxHashMap::default();
+        let mut file_lines_cache: FxHashMap<ArchivedInternedPathId, Vec<&str>> =
+            FxHashMap::default();
 
-        for ((file_id, line_number), _postings) in grouped_by_file_line {
-            let file_id_interned = ArchivedInternedPathId(
-                rkyv::Archived::<u32>::from_native(file_id),
-            );
-            let file_path =
-                self.interned_paths.resolve(file_id_interned).to_string();
-
-            let file_content = if let Some(content) = file_cache.get(&file_path)
+        for (file_id_native, lines_map) in files_to_lines {
+            // Get file path once per file (cached)
+            let file_path = if let Some(cached_path) =
+                file_path_cache.get(&file_id_native)
             {
-                content.clone()
+                cached_path
             } else {
-                // Get content from the stored file contents in the index
-                let file_id_for_content = ArchivedInternedPathId(
-                    rkyv::Archived::<u32>::from_native(file_id),
-                );
+                let path = self.interned_paths.resolve(file_id_native);
+                file_path_cache.insert(file_id_native, path.clone());
+                file_path_cache.get(&file_id_native).unwrap()
+            };
+
+            // Get file content once per file (cached and avoid string conversion)
+            let file_content = if let Some(&cached_content) =
+                file_content_cache.get(&file_id_native)
+            {
+                cached_content
+            } else {
                 if let Some(stored_content) =
-                    self.file_contents.get(&file_id_for_content)
+                    self.file_contents.get(&file_id_native)
                 {
-                    match String::from_utf8(stored_content.to_vec()) {
-                        Ok(content) => {
-                            file_cache
-                                .insert(file_path.clone(), content.clone());
-                            content
+                    // Use std::str::from_utf8 instead of String::from_utf8(to_vec())
+                    match std::str::from_utf8(stored_content) {
+                        Ok(content_str) => {
+                            file_content_cache
+                                .insert(file_id_native, content_str);
+                            content_str
                         }
                         Err(_) => continue, // Skip files with invalid UTF-8
                     }
@@ -468,28 +474,41 @@ impl IndexView {
                 }
             };
 
-            let lines: Vec<&str> = file_content.lines().collect();
+            // Get lines for this file (cached)
+            let lines = if let Some(cached_lines) =
+                file_lines_cache.get(&file_id_native)
+            {
+                cached_lines
+            } else {
+                let lines: Vec<&str> = file_content.lines().collect();
+                file_lines_cache.insert(file_id_native, lines);
+                file_lines_cache.get(&file_id_native).unwrap()
+            };
 
-            if line_number as usize >= lines.len() {
-                continue;
-            }
-
-            let line_text = lines[line_number as usize];
-
-            let mut start_pos = 0;
-            while let Some(match_pos) = line_text[start_pos..].find(query) {
-                let absolute_match_pos = start_pos + match_pos;
-
-                let search_result = SearchResult {
-                    file_path: file_path.clone(),
-                    line_number,
-                    line_text: line_text.to_string(),
-                    match_start: absolute_match_pos as u32,
-                    match_end: (absolute_match_pos + query.len()) as u32,
+            // Process all lines for this file
+            for (line_number, _postings) in lines_map {
+                // Get specific line from pre-computed lines
+                let line_number = line_number.to_native() as u32;
+                let line_text = match lines.get(line_number as usize) {
+                    Some(&line) => line,
+                    None => continue, // Line number out of bounds
                 };
-                results.push(search_result);
 
-                start_pos = absolute_match_pos + 1;
+                let mut start_pos = 0;
+                while let Some(match_pos) = line_text[start_pos..].find(query) {
+                    let absolute_match_pos = start_pos + match_pos;
+
+                    let search_result = SearchResult {
+                        file_path: file_path.clone(),
+                        line_number: line_number,
+                        line_text: line_text.to_string(),
+                        match_start: absolute_match_pos as u32,
+                        match_end: (absolute_match_pos + query.len()) as u32,
+                    };
+                    results.push(search_result);
+
+                    start_pos = absolute_match_pos + 1;
+                }
             }
         }
 
@@ -522,19 +541,44 @@ impl TryFrom<&Path> for IndexView {
 
     /// Creates an IndexView by loading and decompressing an index file.
     ///
+    /// The automaton is built during construction for immediate search readiness.
+    ///
     /// # Arguments
     ///
     /// * `path` - Path to the compressed index file
     ///
     /// # Errors
     ///
-    /// Returns an error if the file cannot be opened or decompressed.
+    /// Returns an error if the file cannot be opened, decompressed, or if
+    /// the automaton cannot be built.
     fn try_from(path: &Path) -> Result<Self> {
         let mut decompressor =
             flate2::read::ZlibDecoder::new(File::open(path)?);
         let mut buf = Vec::new();
         decompressor.read_to_end(&mut buf)?;
-        Ok(IndexView { buf })
+
+        // Build the automaton immediately
+        let archived_index = unsafe { access_unchecked::<ArchivedIndex>(&buf) };
+        let trigram_pairs: Vec<(&[u8; 3], &ArchivedPostingList)> =
+            archived_index.trigrams.iter().collect();
+
+        let daac = DoubleArrayAhoCorasick::with_values(
+            trigram_pairs.iter().map(|(k, v)| (k.as_slice(), *v)),
+        )
+        .map_err(|e| {
+            eyre::eyre!("Failed to build Aho-Corasick automaton: {}", e)
+        })?;
+
+        // Safety: The automaton references data in buf, which will be owned by the IndexView
+        // This is safe because IndexView owns buf and the automaton will not outlive IndexView
+        let static_automaton: DoubleArrayAhoCorasick<
+            &'static ArchivedPostingList,
+        > = unsafe { std::mem::transmute(daac) };
+
+        Ok(IndexView {
+            buf,
+            automaton: static_automaton,
+        })
     }
 }
 
@@ -1129,5 +1173,82 @@ mod tests {
             "Large project simulation: {} unique components for {} paths, saved ~{} bytes",
             unique_components, total_paths, estimated_savings
         );
+    }
+
+    #[test]
+    fn test_search_performance() {
+        use std::time::Instant;
+
+        // Create a larger test scenario
+        let mut index = Index::new();
+
+        // Add multiple files with realistic content
+        let content1 =
+            "the quick brown fox jumps over the lazy dog ".repeat(100);
+        let content2 = "hello world this is a test ".repeat(150);
+        let content3 = "searching for patterns in text ".repeat(200);
+        let content4 = "performance testing with larger content ".repeat(100);
+        let content5 = "example code with various patterns ".repeat(80);
+
+        let test_files = vec![
+            ("src/main.rs", include_str!("lib.rs")), // Use our own lib.rs as test content
+            ("src/mod1.rs", content1.as_str()),
+            ("src/mod2.rs", content2.as_str()),
+            ("tests/test1.rs", content3.as_str()),
+            ("tests/test2.rs", content4.as_str()),
+            ("examples/example.rs", content5.as_str()),
+        ];
+
+        for (filename, content) in &test_files {
+            let file_id = index.interned_paths.intern(filename);
+            let reader = std::io::Cursor::new(content.as_bytes());
+            Index::add_file_to_index(&mut index, reader, file_id).unwrap();
+        }
+
+        let temp_path = std::env::temp_dir().join("perf_test_index.bin");
+        index.store(&temp_path).unwrap();
+
+        let index_view = IndexView::try_from(temp_path.as_path()).unwrap();
+
+        // Test search performance for various queries
+        let queries =
+            vec!["the", "test", "hello", "pattern", "performance", "quick"];
+
+        println!("=== Search Performance Test ===");
+
+        for query in &queries {
+            let start = Instant::now();
+            let results = index_view.search(query).unwrap();
+            let duration = start.elapsed();
+
+            println!(
+                "Query '{}': {} results in {:?}",
+                query,
+                results.len(),
+                duration
+            );
+
+            // Ensure we actually found some results for common terms
+            if ["the", "test", "hello"].contains(query) {
+                assert!(
+                    !results.is_empty(),
+                    "Should find results for common query '{}'",
+                    query
+                );
+            }
+        }
+
+        // Test performance with a longer query
+        let start = Instant::now();
+        let results = index_view.search("brown fox").unwrap();
+        let duration = start.elapsed();
+        println!(
+            "Query 'brown fox': {} results in {:?}",
+            results.len(),
+            duration
+        );
+
+        std::fs::remove_file(&temp_path).ok();
+        println!("=== Performance Test Completed ===");
     }
 }

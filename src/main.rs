@@ -1,20 +1,26 @@
 use colored::*;
 use eyre::Result;
-use std::{env::current_dir, time::SystemTime};
+use std::{
+    env::current_dir,
+    time::{Duration, SystemTime},
+};
 use zito::{Index, IndexView};
 
 /// Time the execution of a function and return the result and the duration in milliseconds.
-fn timeit<F: Fn() -> T, T>(f: F) -> (T, u128) {
+fn timeit<F: Fn() -> T, T>(f: F) -> (T, Duration) {
     let start = SystemTime::now();
     let result = f();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    (result, duration.as_millis())
+    (result, duration)
 }
 
 fn main() -> Result<()> {
-    println!("Creating index from current directory...");
-    let index = Index::new_from_path("./src")?;
+    println!("Creating index from src directory...");
+    let (index, duration) = timeit(|| Index::new_from_path("./src"));
+    let index = index?;
+    println!("Index created in {} microseconds", duration.as_micros());
+    println!();
 
     index.interned_paths.print_detailed_stats();
 
@@ -42,9 +48,9 @@ fn main() -> Result<()> {
 
         println!();
         println!(
-            "Found {} matches in {} milliseconds:",
+            "Found {} matches in {} microseconds:",
             results.len(),
-            duration
+            duration.as_micros()
         );
 
         // group results by file and sort by line number
