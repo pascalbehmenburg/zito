@@ -69,12 +69,18 @@ pub struct InternedPathId(u32);
 pub struct PathInterner {
     /// Maps path component strings to their IDs for O(1) component lookup
     component_map: FxHashMap<String, ComponentId>,
-    /// Stores actual component strings indexed by ID  
+    /// Stores actual component strings indexed by ID
     components: Vec<String>,
     /// Maps complete path sequences to their interned path IDs
     path_map: FxHashMap<Vec<ComponentId>, InternedPathId>,
     /// Stores path component sequences indexed by path ID
     paths: Vec<Vec<ComponentId>>,
+}
+
+impl Default for PathInterner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PathInterner {
@@ -456,22 +462,19 @@ impl IndexView {
                 file_content_cache.get(&file_id_native)
             {
                 cached_content
-            } else {
-                if let Some(stored_content) =
-                    self.file_contents.get(&file_id_native)
-                {
-                    // Use std::str::from_utf8 instead of String::from_utf8(to_vec())
-                    match std::str::from_utf8(stored_content) {
-                        Ok(content_str) => {
-                            file_content_cache
-                                .insert(file_id_native, content_str);
-                            content_str
-                        }
-                        Err(_) => continue, // Skip files with invalid UTF-8
+            } else if let Some(stored_content) =
+                self.file_contents.get(&file_id_native)
+            {
+                // Use std::str::from_utf8 instead of String::from_utf8(to_vec())
+                match std::str::from_utf8(stored_content) {
+                    Ok(content_str) => {
+                        file_content_cache.insert(file_id_native, content_str);
+                        content_str
                     }
-                } else {
-                    continue; // Skip if content not found in index
+                    Err(_) => continue, // Skip files with invalid UTF-8
                 }
+            } else {
+                continue; // Skip if content not found in index
             };
 
             // Get lines for this file (cached)
@@ -488,7 +491,7 @@ impl IndexView {
             // Process all lines for this file
             for (line_number, _postings) in lines_map {
                 // Get specific line from pre-computed lines
-                let line_number = line_number.to_native() as u32;
+                let line_number = line_number.to_native();
                 let line_text = match lines.get(line_number as usize) {
                     Some(&line) => line,
                     None => continue, // Line number out of bounds
@@ -500,7 +503,7 @@ impl IndexView {
 
                     let search_result = SearchResult {
                         file_path: file_path.clone(),
-                        line_number: line_number,
+                        line_number,
                         line_text: line_text.to_string(),
                         match_start: absolute_match_pos as u32,
                         match_end: (absolute_match_pos + query.len()) as u32,
@@ -582,6 +585,12 @@ impl TryFrom<&Path> for IndexView {
     }
 }
 
+impl Default for Index {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Index {
     /// Creates a new empty index.
     pub fn new() -> Self {
@@ -647,10 +656,10 @@ impl Index {
             if let Ok(file) = std::fs::File::open(entry.path()) {
                 let reader = std::io::BufReader::new(file);
                 let file_id = main_index.interned_paths.intern(
-                    &entry.path().to_path_buf().to_string_lossy().to_string(),
+                    entry.path().to_path_buf().to_string_lossy().as_ref(),
                 );
-                if let Err(_) =
-                    Self::add_file_to_index(&mut main_index, reader, file_id)
+                if Self::add_file_to_index(&mut main_index, reader, file_id)
+                    .is_err()
                 {
                     continue;
                 }
@@ -711,7 +720,7 @@ impl Index {
                     byte_offset: unsafe {
                         current.add(2) as usize - window as usize
                     } as Offset,
-                    file_id: file_id,
+                    file_id,
                 });
 
             current = unsafe { current.add(1) };
