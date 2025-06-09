@@ -940,6 +940,8 @@ dependencies = [
  "itertools 0.14.0",
  "mimalloc",
  "quickcheck",
+ "regex",
+ "regex-syntax",
  "rkyv",
  "smallvec",
  "walkdir",

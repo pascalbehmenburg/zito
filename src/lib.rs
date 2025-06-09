@@ -9,6 +9,8 @@ use eyre::{Result, eyre};
 use flate2::Compression;
 use fxhash::FxHashMap;
 use mimalloc::MiMalloc;
+use regex::Regex;
+use regex_syntax::hir::literal::Extractor;
 use rkyv::{
     Archive, Deserialize, Serialize, access_unchecked, api::serialize_using,
     ser::writer::IoWriter, util::with_arena,
@@ -384,7 +386,103 @@ pub struct IndexView {
     automaton: DoubleArrayAhoCorasick<&'static ArchivedPostingList>,
 }
 
+pub struct SearchOptions {
+    pub regex: bool,
+}
+
+impl SearchOptions {
+    pub fn new(regex: bool) -> Self {
+        SearchOptions { regex }
+    }
+}
+
+impl Default for SearchOptions {
+    /// Creates a new `SearchOptions` instance with regex set to `false`.
+    /// As regex is more expensive to compile and execute, it is disabled by default.
+    fn default() -> Self {
+        SearchOptions::new(false)
+    }
+}
+
 impl IndexView {
+    /// Searches the index for the given query either regex or literal.
+    ///
+    /// Returns all matches found in the indexed files, with each result
+    /// containing the file path, line number, line text, and match position.
+    ///
+    /// # Note
+    ///
+    /// Regex searches are slower due to the overhead of compiling and executing regular expressions.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The text to search for (must be at least 3 characters)
+    ///
+    /// # Returns
+    ///
+    /// A vector of search results, sorted by file path and line number.
+    pub fn search(
+        &self,
+        query: &str,
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
+        if query.len() < 3 {
+            return Err(eyre!(
+                "A search query must be at least 3 characters long."
+            ));
+        }
+        if options.regex {
+            self.re_search(query)
+        } else {
+            self._search(query.as_bytes())
+        }
+    }
+
+    /// Searches the index for the given regex string.
+    ///
+    /// Returns all matches found in the indexed files, with each result
+    /// containing the file path, line number, line text, and match position.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The text to search for (must be at least 3 characters)
+    ///
+    /// # Returns
+    ///
+    /// A vector of search results, sorted by file path and line number.
+    fn re_search(&self, query: &str) -> Result<Vec<SearchResult>> {
+        debug_assert!(query.len() >= 3, "Query must be at least 3 characters");
+        let mut results = Vec::new();
+        let re = Regex::new(query)?;
+        let regex = regex_syntax::parse(query)?;
+        let mut literals = Extractor::new().extract(&regex);
+        literals.dedup();
+
+        let patterns: Vec<&[u8]> = literals
+            .literals()
+            .unwrap_or_default()
+            .iter()
+            .map(|lit| lit.as_bytes())
+            .collect();
+
+        if patterns.is_empty() {
+            return Err(eyre!("Could not extract literals from regex."));
+        }
+
+        for pattern in patterns {
+            let search_results = self._search(pattern)?;
+            results.extend(search_results.into_iter().filter_map(|result| {
+                re.find(result.line_text.as_str()).map(|mat| {
+                    let mut mutated_result = result.clone();
+                    mutated_result.match_start = mat.start() as u32;
+                    mutated_result.match_end = mat.end() as u32;
+                    mutated_result
+                })
+            }));
+        }
+        Ok(results)
+    }
+
     /// Searches the index for the given query string.
     ///
     /// Returns all matches found in the indexed files, with each result
@@ -397,19 +495,13 @@ impl IndexView {
     /// # Returns
     ///
     /// A vector of search results, sorted by file path and line number.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if there are issues reading the indexed files.
-    pub fn search(&self, query: &str) -> Result<Vec<SearchResult>> {
-        if query.len() < 3 {
-            return Ok(Vec::new());
-        }
-
+    fn _search(&self, query: &[u8]) -> Result<Vec<SearchResult>> {
+        debug_assert!(query.len() >= 3, "Query must be at least 3 characters");
+        println!("Trying to find query: {}", String::from_utf8_lossy(query));
         let mut results = Vec::new();
 
         let mut candidate_postings = Vec::new();
-        for m in self.automaton.find_iter(query.as_bytes()) {
+        for m in self.automaton.find_iter(query) {
             let posting_list = m.value();
             for posting in posting_list {
                 candidate_postings.push(posting);
@@ -497,8 +589,11 @@ impl IndexView {
                     None => continue, // Line number out of bounds
                 };
 
-                let mut start_pos = 0;
-                while let Some(match_pos) = line_text[start_pos..].find(query) {
+                let mut start_pos: usize = 0;
+                let query_str = std::str::from_utf8(query)?;
+                while let Some(match_pos) =
+                    line_text[start_pos..].find(query_str)
+                {
                     let absolute_match_pos = start_pos + match_pos;
 
                     let search_result = SearchResult {
@@ -506,7 +601,8 @@ impl IndexView {
                         line_number,
                         line_text: line_text.to_string(),
                         match_start: absolute_match_pos as u32,
-                        match_end: (absolute_match_pos + query.len()) as u32,
+                        match_end: absolute_match_pos as u32
+                            + query.len() as u32,
                     };
                     results.push(search_result);
 
@@ -903,7 +999,7 @@ mod tests {
 
         let index_view = IndexView::try_from(temp_path.as_path()).unwrap();
 
-        let results = index_view.search("the").unwrap();
+        let results = index_view._search("the".as_bytes()).unwrap();
         assert!(!results.is_empty(), "Should find matches for 'the'");
 
         let file1_matches: Vec<_> = results
@@ -912,7 +1008,7 @@ mod tests {
             .collect();
         assert!(!file1_matches.is_empty(), "Should find 'the' in file1.txt");
 
-        let test_results = index_view.search("test").unwrap();
+        let test_results = index_view._search("test".as_bytes()).unwrap();
         assert!(!test_results.is_empty(), "Should find matches for 'test'");
 
         let file2_matches: Vec<_> = test_results
@@ -921,7 +1017,7 @@ mod tests {
             .collect();
         assert!(!file2_matches.is_empty(), "Should find 'test' in file2.txt");
 
-        let trigram_results = index_view.search("trigram").unwrap();
+        let trigram_results = index_view._search("trigram".as_bytes()).unwrap();
         assert!(
             !trigram_results.is_empty(),
             "Should find matches for 'trigram'"
@@ -936,13 +1032,13 @@ mod tests {
             "Should find 'trigram' in file3.txt"
         );
 
-        let no_results = index_view.search("xyz123").unwrap();
+        let no_results = index_view._search("xyz123".as_bytes()).unwrap();
         assert!(
             no_results.is_empty(),
             "Should find no matches for non-existent pattern"
         );
 
-        let world_results = index_view.search("world").unwrap();
+        let world_results = index_view._search("world".as_bytes()).unwrap();
         assert!(!world_results.is_empty(), "Should find matches for 'world'");
 
         for result in &world_results {
@@ -1004,10 +1100,10 @@ mod tests {
         index.store(&temp_path).unwrap();
         let index_view = IndexView::try_from(temp_path.as_path()).unwrap();
 
-        let abc_results = index_view.search("abc").unwrap();
+        let abc_results = index_view._search("abc".as_bytes()).unwrap();
         assert!(!abc_results.is_empty(), "Should find 'abc' in minimal file");
 
-        let cafe_results = index_view.search("café").unwrap();
+        let cafe_results = index_view._search("café".as_bytes()).unwrap();
         assert!(
             !cafe_results.is_empty(),
             "Should find 'café' in special characters file"
