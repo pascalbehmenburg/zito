@@ -103,7 +103,7 @@ fn main() -> Result<()> {
                     println!(
                         "{}:{}:{}:\t{}",
                         file_path.strip_prefix("/").unwrap_or_default().blue(),
-                        result.line_number.to_string(),
+                        (result.line_number + 1).to_string(),
                         result.match_start.to_string(),
                         highlight_match(
                             &result.line_text,

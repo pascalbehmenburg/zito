@@ -796,6 +796,7 @@ impl Index {
             return Err(eyre!("File too short to index"));
         }
 
+        // todo check why this must be 0 or else I dont find shit
         let mut line_number = 0;
 
         let window = content.as_ptr();
