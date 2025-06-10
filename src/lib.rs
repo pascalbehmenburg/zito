@@ -4,6 +4,7 @@
 //! inverted indices. It uses the daachorse crate for fast pattern matching and rkyv for
 //! efficient serialization of the index data.
 
+use colored::Colorize;
 use daachorse::DoubleArrayAhoCorasick;
 use eyre::{Result, eyre};
 use flate2::Compression;
@@ -497,7 +498,10 @@ impl IndexView {
     /// A vector of search results, sorted by file path and line number.
     fn _search(&self, query: &[u8]) -> Result<Vec<SearchResult>> {
         debug_assert!(query.len() >= 3, "Query must be at least 3 characters");
-        println!("Trying to find query: {}", String::from_utf8_lossy(query));
+        println!(
+            "Searching for query: {}",
+            String::from_utf8_lossy(query).blue()
+        );
         let mut results = Vec::new();
 
         let mut candidate_postings = Vec::new();

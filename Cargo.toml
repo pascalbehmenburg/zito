@@ -27,6 +27,8 @@ mimalloc = { version = "0.1.46", features = ["secure"] }
 itertools = "0.14.0"
 regex-syntax = "0.8.5"
 regex = "1.11.1"
+clap = { version = "4.5.40", features = ["derive"] }
+clap_derive = { version = "4.0.0-rc.1" }
 
 [dev-dependencies]
 criterion = "0.5.1"
