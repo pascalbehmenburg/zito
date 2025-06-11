@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
 use std::{
-    env::current_dir,
+    path::PathBuf,
     time::{Duration, SystemTime},
 };
 use zito::{Index, IndexView, SearchOptions};
@@ -24,6 +24,16 @@ enum Commands {
     Find {
         /// The query to search for
         query: String,
+
+        /// Which folder to search in
+        #[arg(default_value = "./")]
+        search_loc: PathBuf,
+
+        /// In which folder is or will the index.zito file be stored
+        /// Make sure it is the index that was used to index the search_loc.
+        #[arg(short, long, default_value = "./")]
+        index_dir: PathBuf,
+
         /// Whether to interpret the query as a regex
         #[arg(short, long, default_value_t = false)]
         regex: bool,
@@ -48,24 +58,28 @@ fn highlight_match(line: &str, match_start: usize, match_end: usize) -> String {
 }
 
 fn main() -> Result<()> {
-    println!("Creating index from src directory...");
-    let (index, duration) = timeit(|| Index::new_from_path("./src"));
-    let index = index?;
-    println!("Created index in {} milliseconds.", duration.as_millis());
-
-    println!("Storing index...");
-    let index_dir = current_dir()?.join("index");
-    std::fs::create_dir_all(&index_dir)?;
-    let index_path = index_dir.join("main.zito");
-    index.store(&index_path)?;
-    println!("Stored index to {}", index_path.display());
-
-    let index_view = IndexView::try_from(index_path.as_path())?;
-    println!("Index loaded successfully");
-
     let args = Cli::parse();
     match args.command {
-        Find { query, regex } => {
+        Find {
+            query,
+            search_loc,
+            index_dir,
+            regex,
+        } => {
+            // check whether index_loc already contains an index
+            let index_view = match IndexView::try_from(index_dir.as_path()) {
+                Ok(index) => index,
+                Err(_) => {
+                    let index = Index::new_from_path(search_loc.as_path())?;
+
+                    std::fs::create_dir_all(&index_dir)?;
+                    let index_path = index_dir.join("main.zito");
+                    index.store(&index_path)?;
+
+                    IndexView::try_from(index_path.as_path())?
+                }
+            };
+
             let (results, duration) = timeit(|| {
                 index_view.search(query.as_str(), SearchOptions::new(regex))
             });
@@ -116,8 +130,5 @@ fn main() -> Result<()> {
             }
         }
     }
-
-    std::fs::remove_file(&index_path).ok();
-    std::fs::remove_dir(&index_dir).ok();
     Ok(())
 }
