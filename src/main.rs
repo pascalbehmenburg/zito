@@ -117,8 +117,10 @@ fn main() -> Result<()> {
                     println!(
                         "{}:{}:{}:\t{}",
                         file_path.strip_prefix("/").unwrap_or_default().blue(),
+                        // line starts are offset by 1
                         (result.line_number + 1).to_string(),
-                        result.match_start.to_string(),
+                        // a trigram is 3 chars long so we need to add 3
+                        (result.match_start + 3).to_string(),
                         highlight_match(
                             &result.line_text,
                             result.match_start as usize,
