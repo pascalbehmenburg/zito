@@ -22,3 +22,16 @@ As an example you can search this very codebase like this:
 ```bash
 zito find main ./
 ```
+
+## Current performance
+
+Here is the execution of the current state on a 13inch Macbook Air M3 2024 with 16GB RAM.
+
+Searching the linux kernel source code for `file` like this (pre-existing index):
+```bash
+❯ cargo run --release -- find file ./linux/kernel -i ./linux/kernel/
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running `target/release/zito find file ./linux/kernel -i ./linux/kernel/`
+Searching for query: file
+Found 6076 matches in 10937 microseconds.
+```
