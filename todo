@@ -1,0 +1,41 @@
+# Todo
+
+[ ] allow merging indices
+[ ] show times of creating / merging indices
+[ ] write benchmarks for creating / merging indices
+[ ] write benchmarks for searching indices
+[ ] add incremental index updates
+[ ] expose index operations in cli tool
+[ ] properly seperate the lib from the cli tool in two packages such that the cli can be published to crates.io
+[ ] write ci/cd
+
+[ ] make sure it is obvious that regex searches are experimental
+[ ] fix: regex search failing when there is a literal extracted with less than 2 chars
+    - this can be fixed by using the extracted literals and searching the known trigrams for one's that start with the 1-2 characters
+    - then search results can be reduced by searching for these trigrams and afterwards applying the regex
+
+[ ] write docs
+[ ] write a blog post
+
+[ ] write a egui-based code viewer with syntax highlighting
+
+[ ] write a backend in axum that uses the lib and exposes an api that is used by the served webassembly frontend to display and search code which is locally available to the backend
+[ ] make sure selfhosting the stack is easy e.g. provide instructions and/or docker file + docker-compose
+[ ] write another blog post
+
+[ ] integrate remote repository support (watch a repo and update the index when the repo changes)
+    - this would enable people to watch their github repos but selfhost the tool on their own infra / have code and the tool seperated from each other
+    - though the code would still be persisted in the index
+
+[ ] think about how to implement symbol search
+    - probably treesitter grammar parsing and some sort of smart deduplication per repo (e.g. symbol to posting instead of trigram to posting)
+    - this will not include goto defintion / find all references as the scope of such a feature is too broad for an individual to support for a multitude of different language semantics
+    - make sure this is optional as it will increase index size sufficiently
+
+[ ] have ide integration with zed and vscode
+    - have the index be created locally but allow searches to also query the backend api for repositories which are not locally indexed
+    - have the index update automatically when files change (watcher)
+      - consider to only index the file which has changed and merge the results (if possible)
+    - for file watching maybe use a fancy linux api but that would kill cross platform support (for the cli / plugins) for the time being
+
+[ ] think about index sharding
