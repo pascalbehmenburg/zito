@@ -33,10 +33,6 @@ clap_derive = { version = "4.0.0-rc.1" }
 [dev-dependencies]
 criterion = "0.5.1"
 
-[[bench]]
-name = "file_indexing"
-harness = false
-
 [lib]
 name = "zito"
 path = "src/lib.rs"
