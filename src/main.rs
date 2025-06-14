@@ -66,15 +66,14 @@ fn main() -> Result<()> {
             index_dir,
             regex,
         } => {
+            let index_path = index_dir.join("main.zito");
             // check whether index_loc already contains an index
-            let index_view = match IndexView::try_from(index_dir.as_path()) {
+            let index_view = match IndexView::try_from(index_path.as_path()) {
                 Ok(index) => index,
                 Err(_) => {
                     let index = Index::new_from_path(search_loc.as_path())?;
-
                     std::fs::create_dir_all(&index_dir)?;
-                    let index_path = index_dir.join("main.zito");
-                    index.store(&index_path)?;
+                    index.store(index_path.as_path())?;
 
                     IndexView::try_from(index_path.as_path())?
                 }
