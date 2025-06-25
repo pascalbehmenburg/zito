@@ -1,7 +1,8 @@
-use crate::Commands::Find;
+use crate::Commands::{Extend, Find};
 use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
+use rkyv::{deserialize, rancor::Error};
 use std::{
     path::PathBuf,
     time::{Duration, SystemTime},
@@ -38,6 +39,13 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         regex: bool,
     },
+    Extend {
+        /// The index to merge into
+        index_dir: PathBuf,
+
+        /// The index to merge from
+        other_index_dir: PathBuf,
+    },
 }
 
 /// Time the execution of a function and return the result and the duration in milliseconds.
@@ -59,6 +67,7 @@ fn highlight_match(line: &str, match_start: usize, match_end: usize) -> String {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+    let index_file_name = "main.zito";
     match args.command {
         Find {
             query,
@@ -66,7 +75,7 @@ fn main() -> Result<()> {
             index_dir,
             regex,
         } => {
-            let index_path = index_dir.join("main.zito");
+            let index_path = index_dir.join(index_file_name);
             // check whether index_loc already contains an index
             let index_view = match IndexView::try_from(index_path.as_path()) {
                 Ok(index) => index,
@@ -115,7 +124,7 @@ fn main() -> Result<()> {
                 for result in file_matches.iter() {
                     println!(
                         "{}:{}:{}:\t{}",
-                        file_path.strip_prefix("/").unwrap_or_default().blue(),
+                        file_path,
                         // line starts are offset by 1
                         (result.line_number + 1).to_string(),
                         // a trigram is 3 chars long so we need to add 3
@@ -129,6 +138,22 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        }
+        Extend {
+            index_dir,
+            other_index_dir,
+        } => {
+            let index_path = index_dir.join(index_file_name);
+            let index_view = IndexView::try_from(index_path.as_path())?;
+            let mut index = Index::try_from(index_view)?;
+
+            let other_index_view = IndexView::try_from(
+                other_index_dir.join(index_file_name).as_path(),
+            )?;
+            let other_index = Index::try_from(other_index_view)?;
+
+            index.extend(other_index);
+            index.store(index_path)?;
         }
     }
     Ok(())

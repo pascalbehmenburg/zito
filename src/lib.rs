@@ -14,7 +14,7 @@ use regex::Regex;
 use regex_syntax::hir::literal::Extractor;
 use rkyv::{
     Archive, Deserialize, Serialize, access_unchecked, api::serialize_using,
-    ser::writer::IoWriter, util::with_arena,
+    deserialize, rancor::Error, ser::writer::IoWriter, util::with_arena,
 };
 use smallvec::SmallVec;
 use std::{
@@ -69,6 +69,13 @@ impl StringInterner {
         self.strings.push(component.to_string());
         self.string_map.insert(component.to_string(), id);
         id
+    }
+
+    /// Merges another path interner into this one.
+    fn extend(&mut self, other: StringInterner) {
+        for string in other.strings {
+            self.intern(&string);
+        }
     }
 }
 
@@ -451,6 +458,16 @@ impl IndexView {
     }
 }
 
+impl TryFrom<IndexView> for Index {
+    type Error = Error;
+
+    fn try_from(index_view: IndexView) -> Result<Self, Self::Error> {
+        let archived =
+            unsafe { access_unchecked::<ArchivedIndex>(&index_view.buf) };
+        deserialize::<Index, Error>(archived)
+    }
+}
+
 impl Deref for IndexView {
     type Target = ArchivedIndex;
 
@@ -519,6 +536,13 @@ impl Index {
             file_contents: FxHashMap::default(),
             trigrams: FxHashMap::default(),
         }
+    }
+
+    /// Extends this index by another one.
+    pub fn extend(&mut self, index: Index) {
+        self.file_contents.extend(index.file_contents);
+        self.trigrams.extend(index.trigrams);
+        self.interned_paths.extend(index.interned_paths);
     }
 
     /// Serializes and compresses the index to a file.
