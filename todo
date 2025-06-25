@@ -1,7 +1,6 @@
 # Todo
 
-[x] allow merging indices
-[ ] filter search results to only show those from the searched path
+[x] filter search results to only show those from the searched path
 [ ] if search path not included in index, index it and extend the index
 [ ] allow adding folders to the index explicitly (multi-arg input)
 [ ] show times of creating / merging indices

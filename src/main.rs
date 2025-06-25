@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
 use zito::{Index, IndexView, SearchOptions};
@@ -114,7 +114,15 @@ fn main() -> Result<()> {
                     .push(result);
             }
 
-            let mut sorted_files: Vec<_> = file_results.into_iter().collect();
+            // sort files by name and filter out files which are outside of the search location
+            let mut sorted_files: Vec<_> = file_results
+                .into_iter()
+                .filter(|(path, _)| {
+                    let file_path = Path::new(path).canonicalize().unwrap();
+                    let folder_path = search_loc.canonicalize().unwrap();
+                    file_path.starts_with(folder_path)
+                })
+                .collect();
             sorted_files.sort_by(|a, b| a.0.cmp(&b.0));
 
             for (file_path, mut file_matches) in sorted_files {
