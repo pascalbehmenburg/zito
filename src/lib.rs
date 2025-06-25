@@ -71,11 +71,9 @@ impl StringInterner {
         id
     }
 
-    /// Merges another path interner into this one.
-    fn extend(&mut self, other: StringInterner) {
-        for string in other.strings {
-            self.intern(&string);
-        }
+    /// Resolves an interned String via ID
+    pub fn resolve(&self, id: InternedStringId) -> String {
+        self.strings[id.0 as usize].to_string()
     }
 }
 
@@ -100,7 +98,7 @@ pub type Trigram = [u8; 3];
 ///
 /// Each posting contains location information that allows the search engine
 /// to quickly locate potential matches and verify them against the full query.
-#[derive(Archive, Debug, Deserialize, Serialize)]
+#[derive(Archive, Clone, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct Posting {
     /// Line number within the file where this trigram appears.
@@ -540,9 +538,34 @@ impl Index {
 
     /// Extends this index by another one.
     pub fn extend(&mut self, index: Index) {
-        self.file_contents.extend(index.file_contents);
-        self.trigrams.extend(index.trigrams);
-        self.interned_paths.extend(index.interned_paths);
+        for (interned_path_id, contents) in index.file_contents {
+            // get the interned path of the file we are merging and intern it into the combined index
+            let interned_path = index.interned_paths.resolve(interned_path_id);
+            let new_interned_path_id =
+                self.interned_paths.intern(&interned_path);
+
+            // insert the file contents with the new interned path id
+            self.file_contents.insert(new_interned_path_id, contents);
+
+            // update the trigram index with the new interned path id
+            // for all the trigrams associated with the old interned path id
+            for (trigram, posting_list) in &index.trigrams {
+                for posting in posting_list.into_iter() {
+                    if posting.file_path_id == interned_path_id {
+                        self.trigrams
+                            .entry(trigram.clone())
+                            .or_insert_with(|| {
+                                PostingList::with_capacity(POSTING_CAPACITY)
+                            })
+                            .push(Posting {
+                                line_number: posting.line_number,
+                                byte_offset: posting.byte_offset,
+                                file_path_id: new_interned_path_id,
+                            });
+                    }
+                }
+            }
+        }
     }
 
     /// Serializes and compresses the index to a file.

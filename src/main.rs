@@ -123,11 +123,11 @@ fn main() -> Result<()> {
                 for result in file_matches.iter() {
                     println!(
                         "{}:{}:{}:\t{}",
-                        file_path,
+                        file_path.blue(),
                         // line starts are offset by 1
                         (result.line_number + 1),
                         // a trigram is 3 chars long so we need to add 3
-                        (result.match_start + 3),
+                        (result.match_start + 1),
                         highlight_match(
                             &result.line_text,
                             result.match_start as usize,
