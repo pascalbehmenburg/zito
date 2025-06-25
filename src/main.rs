@@ -2,7 +2,6 @@ use crate::Commands::{Extend, Find};
 use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
-use rkyv::{deserialize, rancor::Error};
 use std::{
     path::PathBuf,
     time::{Duration, SystemTime},
@@ -126,9 +125,9 @@ fn main() -> Result<()> {
                         "{}:{}:{}:\t{}",
                         file_path,
                         // line starts are offset by 1
-                        (result.line_number + 1).to_string(),
+                        (result.line_number + 1),
                         // a trigram is 3 chars long so we need to add 3
-                        (result.match_start + 3).to_string(),
+                        (result.match_start + 3),
                         highlight_match(
                             &result.line_text,
                             result.match_start as usize,

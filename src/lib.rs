@@ -83,7 +83,7 @@ impl ArchivedStringInterner {
     /// Resolves an interned String via ID
     pub fn resolve(&self, id: ArchivedInternedStringId) -> String {
         let string_id = id.0.to_native() as usize;
-        return self.strings[string_id].to_string();
+        self.strings[string_id].to_string()
     }
 }
 
