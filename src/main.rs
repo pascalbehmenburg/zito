@@ -1,4 +1,5 @@
-use crate::Commands::{Extend, Find};
+use crate::Commands::Find;
+use crate::IndexCommands::Merge;
 use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
@@ -38,7 +39,17 @@ enum Commands {
         #[arg(short, long, default_value_t = false)]
         regex: bool,
     },
-    Extend {
+    /// Index management commands
+    Index {
+        #[command(subcommand)]
+        command: IndexCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum IndexCommands {
+    /// Extend an index by merging another index into it
+    Merge {
         /// The index to merge into
         index_dir: PathBuf,
 
@@ -146,22 +157,28 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Extend {
-            index_dir,
-            other_index_dir,
-        } => {
-            let index_path = index_dir.join(index_file_name);
-            let index_view = IndexView::try_from(index_path.as_path())?;
-            let mut index = Index::try_from(index_view)?;
+        Commands::Index { command } => match command {
+            Merge {
+                index_dir,
+                other_index_dir,
+            } => {
+                let index_path = index_dir.join(index_file_name);
+                let index_view = IndexView::try_from(index_path.as_path())?;
+                let mut index = Index::try_from(index_view)?;
 
-            let other_index_view = IndexView::try_from(
-                other_index_dir.join(index_file_name).as_path(),
-            )?;
-            let other_index = Index::try_from(other_index_view)?;
+                let other_index_view = IndexView::try_from(
+                    other_index_dir.join(index_file_name).as_path(),
+                )?;
+                let other_index = Index::try_from(other_index_view)?;
 
-            index.extend(other_index);
-            index.store(index_path)?;
-        }
+                index.merge(other_index);
+                index.store(index_path)?;
+            }
+            Extend {
+                search_loc,
+                index_dir,
+            } => {}
+        },
     }
     Ok(())
 }

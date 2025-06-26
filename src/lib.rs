@@ -537,7 +537,7 @@ impl Index {
     }
 
     /// Extends this index by another one.
-    pub fn extend(&mut self, index: Index) {
+    pub fn merge(&mut self, index: Index) {
         for (interned_path_id, contents) in index.file_contents {
             // get the interned path of the file we are merging and intern it into the combined index
             let interned_path = index.interned_paths.resolve(interned_path_id);
