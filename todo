@@ -1,12 +1,13 @@
 # Todo
 
-[ ] if search path not included in index, index it and extend the index
-[ ] allow adding folders to the index explicitly (multi-arg input)
-[ ] show times of creating / merging indices
+[x] add a way to extend the index by a file
+    - if we already know a file the postings shall be updated
+    - ^this also solves re-indexing files by just indexing them again
+    - for this postings could be sets
+[x] show times of creating / merging indices
 [ ] write benchmarks for creating / merging indices
 [ ] write benchmarks for searching indices
-[ ] add incremental index updates
-[ ] expose index operations in cli tool
+[x] expose index operations in cli tool
 [ ] properly seperate the lib from the cli tool in two packages such that the cli can be published to crates.io
 [ ] write ci/cd
 

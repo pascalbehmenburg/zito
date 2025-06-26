@@ -8,7 +8,7 @@ use colored::Colorize;
 use daachorse::DoubleArrayAhoCorasick;
 use eyre::{Result, eyre};
 use flate2::Compression;
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use mimalloc::MiMalloc;
 use regex::Regex;
 use regex_syntax::hir::literal::Extractor;
@@ -16,12 +16,11 @@ use rkyv::{
     Archive, Deserialize, Serialize, access_unchecked, api::serialize_using,
     deserialize, rancor::Error, ser::writer::IoWriter, util::with_arena,
 };
-use smallvec::SmallVec;
 use std::{
     fs::File,
     io::{BufRead, Read},
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
@@ -98,8 +97,10 @@ pub type Trigram = [u8; 3];
 ///
 /// Each posting contains location information that allows the search engine
 /// to quickly locate potential matches and verify them against the full query.
-#[derive(Archive, Clone, Debug, Deserialize, Serialize)]
-#[rkyv(derive(Debug))]
+#[derive(
+    Archive, Clone, Debug, Hash, Eq, PartialEq, Deserialize, Serialize,
+)]
+#[rkyv(derive(Debug, Hash, Eq, PartialEq))]
 pub struct Posting {
     /// Line number within the file where this trigram appears.
     pub line_number: u32,
@@ -109,9 +110,6 @@ pub struct Posting {
     pub file_path_id: InternedStringId,
 }
 
-/// Initial capacity for posting lists to optimize memory allocation.
-const POSTING_CAPACITY: usize = 16;
-
 /// A collection of postings for a specific trigram.
 ///
 /// Uses SmallVec to optimize for the common case where trigrams appear
@@ -119,52 +117,28 @@ const POSTING_CAPACITY: usize = 16;
 #[derive(Archive, Debug, Deserialize, Serialize)]
 #[rkyv(derive(Debug))]
 pub struct PostingList {
-    data: SmallVec<[Posting; POSTING_CAPACITY]>,
+    data: FxHashSet<Posting>,
+}
+
+impl Default for PostingList {
+    fn default() -> Self {
+        Self {
+            data: FxHashSet::default(),
+        }
+    }
 }
 
 impl PostingList {
-    /// Creates a new posting list with the specified capacity.
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            data: SmallVec::with_capacity(capacity),
-        }
-    }
-
     /// Adds a new posting to this list.
     #[inline]
     fn push(&mut self, posting: Posting) {
-        self.data.push(posting);
+        self.data.insert(posting);
     }
 
     /// Returns the posting at the specified index, if it exists.
     #[inline]
-    pub fn get(&self, index: usize) -> Option<&Posting> {
-        self.data.get(index)
-    }
-
-    /// Returns all postings as a slice.
-    #[inline]
-    pub fn as_slice(&self) -> &[Posting] {
-        self.data.as_slice()
-    }
-}
-
-impl<'a> IntoIterator for &'a PostingList {
-    type Item = &'a Posting;
-    type IntoIter = std::slice::Iter<'a, Posting>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.data.iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a ArchivedPostingList {
-    type Item = &'a ArchivedPosting;
-    type IntoIter = std::slice::Iter<'a, ArchivedPosting>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.data.iter()
+    pub fn get(&self, posting: Posting) -> Option<&Posting> {
+        self.data.get(&posting)
     }
 }
 
@@ -330,7 +304,7 @@ impl IndexView {
         let mut candidate_postings = Vec::new();
         for m in self.automaton.find_iter(query) {
             let posting_list = m.value();
-            for posting in posting_list {
+            for posting in posting_list.data.iter() {
                 candidate_postings.push(posting);
             }
         }
@@ -474,6 +448,14 @@ impl Deref for IndexView {
     }
 }
 
+impl TryFrom<&PathBuf> for IndexView {
+    type Error = eyre::Error;
+
+    fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
+        Self::try_from(path.as_path())
+    }
+}
+
 impl TryFrom<&Path> for IndexView {
     type Error = eyre::Error;
 
@@ -537,7 +519,7 @@ impl Index {
     }
 
     /// Extends this index by another one.
-    pub fn merge(&mut self, index: Index) {
+    pub fn merge(&mut self, index: Index) -> &mut Self {
         for (interned_path_id, contents) in index.file_contents {
             // get the interned path of the file we are merging and intern it into the combined index
             let interned_path = index.interned_paths.resolve(interned_path_id);
@@ -550,13 +532,11 @@ impl Index {
             // update the trigram index with the new interned path id
             // for all the trigrams associated with the old interned path id
             for (trigram, posting_list) in &index.trigrams {
-                for posting in posting_list.into_iter() {
+                for posting in posting_list.data.iter() {
                     if posting.file_path_id == interned_path_id {
                         self.trigrams
                             .entry(trigram.clone())
-                            .or_insert_with(|| {
-                                PostingList::with_capacity(POSTING_CAPACITY)
-                            })
+                            .or_insert_with(|| PostingList::default())
                             .push(Posting {
                                 line_number: posting.line_number,
                                 byte_offset: posting.byte_offset,
@@ -566,6 +546,7 @@ impl Index {
                 }
             }
         }
+        self
     }
 
     /// Serializes and compresses the index to a file.
@@ -635,6 +616,30 @@ impl Index {
         Ok(main_index)
     }
 
+    /// Extends an existing index by files in a path.
+    pub fn extend_by_path<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<&mut Self> {
+        for entry in WalkDir::new(path)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            if let Ok(file) = std::fs::File::open(entry.path()) {
+                let reader = std::io::BufReader::new(file);
+                let file_id = self.interned_paths.intern(
+                    entry.path().to_path_buf().to_string_lossy().as_ref(),
+                );
+                if Self::add_file_to_index(self, reader, file_id).is_err() {
+                    continue;
+                }
+            }
+        }
+        Ok(self)
+    }
+
     /// Adds a single file's content to the index.
     ///
     /// Reads the file content, extracts all trigrams, and builds posting lists
@@ -654,7 +659,7 @@ impl Index {
         index: &mut Index,
         mut reader: R,
         file_id: InternedStringId,
-    ) -> Result<()> {
+    ) -> Result<&mut Self> {
         let mut content =
             Vec::with_capacity(reader.fill_buf().map_or(0, |b| b.len()));
         reader.read_to_end(&mut content)?;
@@ -682,7 +687,7 @@ impl Index {
             index
                 .trigrams
                 .entry(trigram)
-                .or_insert_with(|| PostingList::with_capacity(POSTING_CAPACITY))
+                .or_insert_with(|| PostingList::default())
                 .push(Posting {
                     line_number,
                     byte_offset: unsafe {
@@ -697,7 +702,7 @@ impl Index {
         // Store the file content in the index
         index.file_contents.insert(file_id, content);
 
-        Ok(())
+        Ok(index)
     }
 }
 
@@ -771,12 +776,14 @@ mod tests {
         let reader = Cursor::new("hello\nworld");
         let index = create_test_index(reader).unwrap();
         let hel = index.trigrams.get(&[b'h', b'e', b'l']).unwrap();
-        assert_eq!(hel.get(0).unwrap().line_number, 0);
-        assert_eq!(hel.get(0).unwrap().byte_offset, 2);
+        let hel_posting = hel.data.iter().next().unwrap();
+        assert_eq!(hel_posting.line_number, 0);
+        assert_eq!(hel_posting.byte_offset, 2);
 
         let wor = index.trigrams.get(&[b'w', b'o', b'r']).unwrap();
-        assert_eq!(wor.get(0).unwrap().line_number, 1);
-        assert_eq!(wor.get(0).unwrap().byte_offset, 8);
+        let wor_posting = wor.data.iter().next().unwrap();
+        assert_eq!(wor_posting.line_number, 1);
+        assert_eq!(wor_posting.byte_offset, 8);
     }
 
     #[test]

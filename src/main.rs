@@ -1,5 +1,5 @@
 use crate::Commands::Find;
-use crate::IndexCommands::Merge;
+use crate::IndexCommands::{Create, Extend, Merge};
 use clap::{Parser, Subcommand};
 use colored::*;
 use eyre::Result;
@@ -27,8 +27,7 @@ enum Commands {
         query: String,
 
         /// Which folder to search in
-        #[arg(default_value = "./")]
-        search_loc: PathBuf,
+        search_dir: PathBuf,
 
         /// In which folder is or will the index.zito file be stored
         /// Make sure it is the index that was used to index the search_loc.
@@ -48,13 +47,30 @@ enum Commands {
 
 #[derive(Debug, Subcommand)]
 enum IndexCommands {
+    Create {
+        /// The directory to index
+        search_dir: PathBuf,
+
+        /// The directory to store the index in
+        #[arg(default_value = "./")]
+        index_dir: PathBuf,
+    },
     /// Extend an index by merging another index into it
     Merge {
-        /// The index to merge into
-        index_dir: PathBuf,
-
         /// The index to merge from
         other_index_dir: PathBuf,
+
+        /// The index to merge into
+        #[arg(default_value = "./")]
+        index_dir: PathBuf,
+    },
+    Extend {
+        /// The index to extend from
+        search_dir: PathBuf,
+
+        /// The index to extend
+        #[arg(default_value = "./")]
+        index_dir: PathBuf,
     },
 }
 
@@ -81,7 +97,7 @@ fn main() -> Result<()> {
     match args.command {
         Find {
             query,
-            search_loc,
+            search_dir,
             index_dir,
             regex,
         } => {
@@ -90,10 +106,16 @@ fn main() -> Result<()> {
             let index_view = match IndexView::try_from(index_path.as_path()) {
                 Ok(index) => index,
                 Err(_) => {
-                    let index = Index::new_from_path(search_loc.as_path())?;
-                    std::fs::create_dir_all(&index_dir)?;
-                    index.store(index_path.as_path())?;
-
+                    let (index_result, index_duration) = timeit(|| {
+                        std::fs::create_dir_all(&index_dir)?;
+                        Index::new_from_path(search_dir.as_path())
+                            .and_then(|index| index.store(index_path.as_path()))
+                    });
+                    index_result?;
+                    println!(
+                        "Created and stored index in {} seconds.",
+                        index_duration.as_secs().to_string().blue()
+                    );
                     IndexView::try_from(index_path.as_path())?
                 }
             };
@@ -130,7 +152,7 @@ fn main() -> Result<()> {
                 .into_iter()
                 .filter(|(path, _)| {
                     let file_path = Path::new(path).canonicalize().unwrap();
-                    let folder_path = search_loc.canonicalize().unwrap();
+                    let folder_path = search_dir.canonicalize().unwrap();
                     file_path.starts_with(folder_path)
                 })
                 .collect();
@@ -138,6 +160,7 @@ fn main() -> Result<()> {
 
             for (file_path, mut file_matches) in sorted_files {
                 file_matches.sort_by_key(|r| r.line_number);
+
                 println!();
                 for result in file_matches.iter() {
                     println!(
@@ -158,26 +181,59 @@ fn main() -> Result<()> {
             }
         }
         Commands::Index { command } => match command {
-            Merge {
+            Create {
+                search_dir,
                 index_dir,
-                other_index_dir,
             } => {
-                let index_path = index_dir.join(index_file_name);
-                let index_view = IndexView::try_from(index_path.as_path())?;
-                let mut index = Index::try_from(index_view)?;
+                let (index_result, index_duration) = timeit(|| {
+                    let index_path = index_dir.join(index_file_name);
+                    std::fs::create_dir_all(&index_dir)?;
+                    Index::new_from_path(search_dir.as_path())?
+                        .store(index_path.as_path())
+                });
+                index_result?;
+                println!(
+                    "Created and stored index in {} seconds.",
+                    index_duration.as_secs().to_string().blue()
+                );
+            }
+            Merge {
+                other_index_dir,
+                index_dir,
+            } => {
+                let (index_result, index_duration) = timeit(|| {
+                    let index_path = index_dir.join(index_file_name);
 
-                let other_index_view = IndexView::try_from(
-                    other_index_dir.join(index_file_name).as_path(),
-                )?;
-                let other_index = Index::try_from(other_index_view)?;
+                    let other_index = Index::try_from(IndexView::try_from(
+                        &other_index_dir.join(index_file_name),
+                    )?)?;
 
-                index.merge(other_index);
-                index.store(index_path)?;
+                    Index::try_from(IndexView::try_from(&index_path)?)?
+                        .merge(other_index)
+                        .store(index_path)
+                });
+                index_result?;
+                println!(
+                    "Merged index in {} seconds.",
+                    index_duration.as_secs().to_string().blue()
+                );
             }
             Extend {
-                search_loc,
+                search_dir,
                 index_dir,
-            } => {}
+            } => {
+                let (index_result, index_duration) = timeit(|| {
+                    let index_path = index_dir.join(index_file_name);
+                    Index::try_from(IndexView::try_from(&index_path)?)?
+                        .extend_by_path(&search_dir)?
+                        .store(index_path)
+                });
+                index_result?;
+                println!(
+                    "Extended index in {} seconds.",
+                    index_duration.as_secs().to_string().blue()
+                );
+            }
         },
     }
     Ok(())
