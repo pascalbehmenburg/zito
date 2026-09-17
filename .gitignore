@@ -2,3 +2,7 @@
 /index
 /linux
 main.zito
+*.zito.lock
+.zito-segment-*.zseg
+.zito-manifest-*
+__pycache__/

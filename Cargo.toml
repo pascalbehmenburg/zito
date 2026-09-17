@@ -4,42 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-colored = "3.0.0"
-daachorse = "1.0.0"
-eyre = "0.6.12"
-fxhash = "0.2.1"
-quickcheck = "1.0.3"
-rkyv = { version = "0.8.10", features = [
-    "smallvec-1",
-    "aligned",
-    "pointer_width_32",
-    "little_endian",
-    "std",
-], default-features = false }
-walkdir = "2.3.3"
-# union feature makes smallvec track state in only one machine word
-# therefore having potentially no space overhead compared to Vec
-smallvec = { version = "1.15.0", features = ["union"] }
-# Faster impl of zlib compression/decompression by cloudflare
-# (can only be used when no other crate depends on other zlib impls)
-flate2 = { version = "1.1.1", features = ["cloudflare_zlib"] }
-mimalloc = { version = "0.1.46", features = ["secure"] }
-itertools = "0.14.0"
-regex-syntax = "0.8.5"
-regex = "1.11.1"
-clap = { version = "4.5.40", features = ["derive"] }
-clap_derive = { version = "4.0.0-rc.1" }
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+crc32fast = "1"
+eyre = "0.6"
+fs2 = "0.4"
+fxhash = "0.2"
+memchr = "2"
+regex = "1"
+regex-syntax = "0.8"
+rkyv = { version = "0.8", features = ["bytecheck", "std", "aligned", "pointer_width_32", "little_endian"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+walkdir = "2"
 
 [dev-dependencies]
-criterion = "0.5.1"
-
-[lib]
-name = "zito"
-path = "src/lib.rs"
-
-[[bin]]
-name = "zito"
-path = "src/main.rs"
+quickcheck = "1"
 
 [profile.release]
 opt-level = 3
