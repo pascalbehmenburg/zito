@@ -1,0 +1,20 @@
+{
+  "baseline": {
+    "queries": 35,
+    "passed": 10,
+    "errors": 15,
+    "duplicates": 288,
+    "tp": 321,
+    "fp": 0,
+    "fn": 4368
+  },
+  "sparse": {
+    "queries": 35,
+    "passed": 35,
+    "errors": 0,
+    "duplicates": 0,
+    "tp": 4689,
+    "fp": 0,
+    "fn": 0
+  }
+}

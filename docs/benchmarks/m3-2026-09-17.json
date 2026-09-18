@@ -1,0 +1,456 @@
+{
+  "system": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "records": [
+    {
+      "variant": "baseline",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 0,
+      "metrics": {
+        "build_us": 50560,
+        "store_us": 2227540,
+        "stored_bytes": 6340296,
+        "open_us": 27495,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 2718250,
+            "p95_ns": 2894250,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 4785625,
+            "p95_ns": 4947000,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 2532875,
+            "p95_ns": 2649542,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 7697375,
+            "p95_ns": 8187875,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 2292531,
+        "one_file_update_store_us": 2264248,
+        "build_store_us": 2278100
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 0,
+      "metrics": {
+        "build_us": 5933,
+        "store_us": 53405,
+        "stored_bytes": 2801007,
+        "open_us": 1308,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 959,
+            "p95_ns": 3459,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 1029292,
+            "p95_ns": 1142708,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 375,
+            "p95_ns": 2375,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 933167,
+            "p95_ns": 960000,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 840,
+        "one_file_update_store_us": 11108,
+        "build_store_us": 59338
+      }
+    },
+    {
+      "variant": "baseline",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 1,
+      "metrics": {
+        "build_us": 39162,
+        "store_us": 2237918,
+        "stored_bytes": 6340252,
+        "open_us": 28638,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 2733542,
+            "p95_ns": 2803875,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 4761292,
+            "p95_ns": 4796375,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 2402208,
+            "p95_ns": 2453792,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 7414334,
+            "p95_ns": 7513625,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 2256706,
+        "one_file_update_store_us": 2255356,
+        "build_store_us": 2277080
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 1,
+      "metrics": {
+        "build_us": 3813,
+        "store_us": 50196,
+        "stored_bytes": 2801007,
+        "open_us": 985,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 875,
+            "p95_ns": 2208,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 888666,
+            "p95_ns": 912291,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 417,
+            "p95_ns": 1041,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 900333,
+            "p95_ns": 914958,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 773,
+        "one_file_update_store_us": 11862,
+        "build_store_us": 54009
+      }
+    },
+    {
+      "variant": "baseline",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 2,
+      "metrics": {
+        "build_us": 37478,
+        "store_us": 2217792,
+        "stored_bytes": 6340273,
+        "open_us": 28994,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 2724125,
+            "p95_ns": 2759041,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 4797917,
+            "p95_ns": 4878375,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 2416334,
+            "p95_ns": 2461541,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 7468625,
+            "p95_ns": 7637583,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 2273037,
+        "one_file_update_store_us": 2301373,
+        "build_store_us": 2255270
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "repetitive",
+      "files": 256,
+      "iteration": 2,
+      "metrics": {
+        "build_us": 3925,
+        "store_us": 39027,
+        "stored_bytes": 2801006,
+        "open_us": 934,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 833,
+            "p95_ns": 1959,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 900084,
+            "p95_ns": 928834,
+            "matches": 16384
+          },
+          "handle_99999_999": {
+            "median_ns": 375,
+            "p95_ns": 833,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 898166,
+            "p95_ns": 919291,
+            "matches": 16384
+          }
+        },
+        "noop_update_store_us": 682,
+        "one_file_update_store_us": 14561,
+        "build_store_us": 42952
+      }
+    },
+    {
+      "variant": "baseline",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 0,
+      "metrics": {
+        "build_us": 310046,
+        "store_us": 10856517,
+        "stored_bytes": 46325793,
+        "open_us": 287597,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 12689208,
+            "p95_ns": 13373333,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 23753583,
+            "p95_ns": 24532542,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 11451792,
+            "p95_ns": 11719667,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 35448292,
+            "p95_ns": 36229875,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 11427506,
+        "one_file_update_store_us": 11364641,
+        "build_store_us": 11166563
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 0,
+      "metrics": {
+        "build_us": 16946,
+        "store_us": 476740,
+        "stored_bytes": 51529375,
+        "open_us": 20278,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 791,
+            "p95_ns": 1833,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 3853625,
+            "p95_ns": 3897375,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 375,
+            "p95_ns": 792,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 3903875,
+            "p95_ns": 3968542,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 2513,
+        "one_file_update_store_us": 13181,
+        "build_store_us": 493686
+      }
+    },
+    {
+      "variant": "baseline",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 1,
+      "metrics": {
+        "build_us": 291866,
+        "store_us": 10906096,
+        "stored_bytes": 46325736,
+        "open_us": 207458,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 12414167,
+            "p95_ns": 12918042,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 23487000,
+            "p95_ns": 24096375,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 11386417,
+            "p95_ns": 11707625,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 35100250,
+            "p95_ns": 35794541,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 11380297,
+        "one_file_update_store_us": 11409179,
+        "build_store_us": 11197962
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 1,
+      "metrics": {
+        "build_us": 17799,
+        "store_us": 510730,
+        "stored_bytes": 51529374,
+        "open_us": 23676,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 792,
+            "p95_ns": 1667,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 3985500,
+            "p95_ns": 4120292,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 334,
+            "p95_ns": 834,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 3921959,
+            "p95_ns": 4005291,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 2605,
+        "one_file_update_store_us": 11950,
+        "build_store_us": 528529
+      }
+    },
+    {
+      "variant": "baseline",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 2,
+      "metrics": {
+        "build_us": 280327,
+        "store_us": 10886077,
+        "stored_bytes": 46325727,
+        "open_us": 230580,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 12466167,
+            "p95_ns": 12693333,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 25441125,
+            "p95_ns": 30958292,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 11470958,
+            "p95_ns": 11770041,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 35649750,
+            "p95_ns": 37749375,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 11384730,
+        "one_file_update_store_us": 11414562,
+        "build_store_us": 11166404
+      }
+    },
+    {
+      "variant": "sparse",
+      "corpus": "mixed",
+      "files": 1024,
+      "iteration": 2,
+      "metrics": {
+        "build_us": 17003,
+        "store_us": 488728,
+        "stored_bytes": 51529375,
+        "open_us": 22259,
+        "queries": {
+          "handle_00127_032": {
+            "median_ns": 1000,
+            "p95_ns": 3292,
+            "matches": 1
+          },
+          "dispatch": {
+            "median_ns": 3855125,
+            "p95_ns": 3945459,
+            "matches": 65536
+          },
+          "handle_99999_999": {
+            "median_ns": 375,
+            "p95_ns": 792,
+            "matches": 0
+          },
+          "Result<Response>": {
+            "median_ns": 3890833,
+            "p95_ns": 3964291,
+            "matches": 65536
+          }
+        },
+        "noop_update_store_us": 10740,
+        "one_file_update_store_us": 15259,
+        "build_store_us": 505731
+      }
+    }
+  ],
+  "baseline_revision": "32f824261b2f425e9fb5d390040e15954625c36b",
+  "sparse_ngram_revision": "980469f26c1e18478da7a015686c43ac6f115c6e",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01); release opt-level=3, thin LTO, codegen-units=1",
+  "hardware": "Apple M3, 16 GiB RAM",
+  "sdk": "Command Line Tools; MacOSX15.4.sdk",
+  "source_sha256": "35b0accebdce20e8f0a284fa1ac21840341b8a044996b0a6727e7dfa79146f43"
+}

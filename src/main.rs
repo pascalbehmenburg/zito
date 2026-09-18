@@ -1,238 +1,170 @@
-use crate::Commands::Find;
-use crate::IndexCommands::{Create, Extend, Merge};
 use clap::{Parser, Subcommand};
-use colored::*;
+use colored::Colorize;
 use eyre::Result;
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, SystemTime},
-};
-use zito::{Index, IndexView, SearchOptions};
+use std::{path::PathBuf, time::Instant};
+use zito::{Index, IndexView, SearchOptions, UpdateOptions};
 
-/// A code search cli
-#[derive(Debug, Parser)]
-#[command(name = "zito")]
-#[command(about = "Does find code, fast.", long_about = None)]
+#[derive(Parser)]
+#[command(name = "zito", about = "Fast incremental sparse n-gram code search")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Subcommand)]
 enum Commands {
-    /// Find code
-    #[command(arg_required_else_help = true)]
+    /// Refresh changed files, then search the indexed snapshot.
     Find {
-        /// The query to search for
         query: String,
-
-        /// Which folder to search in
+        #[arg(default_value = "./")]
         search_dir: PathBuf,
-
-        /// In which folder is or will the index.zito file be stored
-        /// Make sure it is the index that was used to index the search_loc.
         #[arg(short, long, default_value = "./")]
         index_dir: PathBuf,
-
-        /// Whether to interpret the query as a regex
-        #[arg(short, long, default_value_t = false)]
+        #[arg(short, long)]
         regex: bool,
+        /// Search the existing snapshot without scanning file metadata.
+        #[arg(long)]
+        no_update: bool,
+        /// Compare file contents even when timestamps and sizes are unchanged.
+        #[arg(long, conflicts_with = "no_update")]
+        verify: bool,
     },
-    /// Index management commands
     Index {
         #[command(subcommand)]
         command: IndexCommands,
     },
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Subcommand)]
 enum IndexCommands {
+    /// Build a new index (also replaces legacy indices).
     Create {
-        /// The directory to index
         search_dir: PathBuf,
-
-        /// The directory to store the index in
         #[arg(default_value = "./")]
         index_dir: PathBuf,
     },
-    /// Extend an index by merging another index into it
+    /// Incrementally synchronize additions, changes, renames and deletions.
+    #[command(alias = "extend")]
+    Update {
+        search_dir: PathBuf,
+        #[arg(default_value = "./")]
+        index_dir: PathBuf,
+        #[arg(long)]
+        verify: bool,
+    },
     Merge {
-        /// The index to merge from
         other_index_dir: PathBuf,
-
-        /// The index to merge into
         #[arg(default_value = "./")]
         index_dir: PathBuf,
     },
-    Extend {
-        /// The index to extend from
-        search_dir: PathBuf,
-
-        /// The index to extend
+    /// Consolidate segments and reclaim superseded content.
+    Compact {
         #[arg(default_value = "./")]
         index_dir: PathBuf,
     },
-}
-
-/// Time the execution of a function and return the result and the duration in milliseconds.
-fn timeit<F: Fn() -> T, T>(f: F) -> (T, Duration) {
-    let start = SystemTime::now();
-    let result = f();
-    let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
-    (result, duration)
-}
-
-fn highlight_match(line: &str, match_start: usize, match_end: usize) -> String {
-    let mut result = String::new();
-    result.push_str(&line[..match_start]);
-    result.push_str(&line[match_start..match_end].blue().bold().to_string());
-    result.push_str(&line[match_end..]);
-    result
 }
 
 fn main() -> Result<()> {
-    let args = Cli::parse();
-    let index_file_name = "main.zito";
-    match args.command {
-        Find {
+    match Cli::parse().command {
+        Commands::Find {
             query,
             search_dir,
             index_dir,
             regex,
+            no_update,
+            verify,
         } => {
-            let index_path = index_dir.join(index_file_name);
-            // check whether index_loc already contains an index
-            let index_view = match IndexView::try_from(index_path.as_path()) {
-                Ok(index) => index,
-                Err(_) => {
-                    let (index_result, index_duration) = timeit(|| {
-                        std::fs::create_dir_all(&index_dir)?;
-                        Index::new_from_path(search_dir.as_path())
-                            .and_then(|index| index.store(index_path.as_path()))
-                    });
-                    index_result?;
-                    println!(
-                        "Created and stored index in {} seconds.",
-                        index_duration.as_secs().to_string().blue()
-                    );
-                    IndexView::try_from(index_path.as_path())?
-                }
+            let path = index_dir.join("main.zito");
+            let root = search_dir.canonicalize()?;
+            let view = if no_update {
+                IndexView::try_from(&path)?
+            } else {
+                let mut index = if path.try_exists()? {
+                    Index::from(IndexView::try_from(&path)?)
+                } else {
+                    Index::new()
+                };
+                index.update_by_path(
+                    &root,
+                    UpdateOptions {
+                        verify_contents: verify,
+                    },
+                )?;
+                index.store(&path)?;
+                index.into_view()?
             };
-
-            let (results, duration) = timeit(|| {
-                index_view.search(query.as_str(), SearchOptions::new(regex))
-            });
-            let results = results?;
-
-            if results.is_empty() {
-                println!("{}", "\tNo matches found.".red());
-                return Ok(());
-            }
-
-            println!(
-                "Found {} matches in {} microseconds.",
-                results.len().to_string().blue(),
-                duration.as_micros().to_string().blue()
-            );
-
-            // group results by file and sort by line number
-            let mut file_results: std::collections::HashMap<String, Vec<_>> =
-                std::collections::HashMap::new();
-
-            for result in results {
-                file_results
-                    .entry(result.file_path.clone())
-                    .or_insert_with(Vec::new)
-                    .push(result);
-            }
-
-            // sort files by name and filter out files which are outside of the search location
-            let mut sorted_files: Vec<_> = file_results
+            let start = Instant::now();
+            let results = view.search(&query, SearchOptions::new(regex))?;
+            let results: Vec<_> = results
                 .into_iter()
-                .filter(|(path, _)| {
-                    let file_path = Path::new(path).canonicalize().unwrap();
-                    let folder_path = search_dir.canonicalize().unwrap();
-                    file_path.starts_with(folder_path)
+                .filter(|r| {
+                    std::path::Path::new(&r.file_path).starts_with(&root)
                 })
                 .collect();
-            sorted_files.sort_by(|a, b| a.0.cmp(&b.0));
-
-            for (file_path, mut file_matches) in sorted_files {
-                file_matches.sort_by_key(|r| r.line_number);
-
-                println!();
-                for result in file_matches.iter() {
-                    println!(
-                        "{}:{}:{}:\t{}",
-                        file_path.blue(),
-                        // line starts are offset by 1
-                        (result.line_number + 1),
-                        // a trigram is 3 chars long so we need to add 3
-                        (result.match_start + 1),
-                        highlight_match(
-                            &result.line_text,
-                            result.match_start as usize,
-                            result.match_end as usize
-                        )
-                        .trim()
-                    );
-                }
+            eprintln!(
+                "Found {} matches in {} microseconds.",
+                results.len(),
+                start.elapsed().as_micros()
+            );
+            for result in results {
+                let a = result.match_start as usize;
+                let b = result.match_end as usize;
+                println!(
+                    "{}:{}:{}:\t{}{}{}",
+                    result.file_path.blue(),
+                    result.line_number + 1,
+                    a + 1,
+                    &result.line_text[..a],
+                    result.line_text[a..b].blue().bold(),
+                    &result.line_text[b..]
+                );
             }
         }
         Commands::Index { command } => match command {
-            Create {
+            IndexCommands::Create {
                 search_dir,
                 index_dir,
+            } => Index::new_from_path(search_dir)?
+                .replace(index_dir.join("main.zito"))?,
+            IndexCommands::Update {
+                search_dir,
+                index_dir,
+                verify,
             } => {
-                let (index_result, index_duration) = timeit(|| {
-                    let index_path = index_dir.join(index_file_name);
-                    std::fs::create_dir_all(&index_dir)?;
-                    Index::new_from_path(search_dir.as_path())?
-                        .store(index_path.as_path())
-                });
-                index_result?;
-                println!(
-                    "Created and stored index in {} seconds.",
-                    index_duration.as_secs().to_string().blue()
+                let path = index_dir.join("main.zito");
+                let mut index = Index::from(IndexView::try_from(&path)?);
+                let stats = index.update_by_path(
+                    search_dir,
+                    UpdateOptions {
+                        verify_contents: verify,
+                    },
+                )?;
+                index.store(&path)?;
+                eprintln!(
+                    "added={} modified={} removed={} unchanged={} skipped={} bytes_read={}",
+                    stats.added,
+                    stats.modified,
+                    stats.removed,
+                    stats.unchanged,
+                    stats.skipped,
+                    stats.bytes_read
                 );
             }
-            Merge {
+            IndexCommands::Merge {
                 other_index_dir,
                 index_dir,
             } => {
-                let (index_result, index_duration) = timeit(|| {
-                    let index_path = index_dir.join(index_file_name);
-
-                    let other_index = Index::try_from(IndexView::try_from(
-                        &other_index_dir.join(index_file_name),
-                    )?)?;
-
-                    Index::try_from(IndexView::try_from(&index_path)?)?
-                        .merge(other_index)
-                        .store(index_path)
-                });
-                index_result?;
-                println!(
-                    "Merged index in {} seconds.",
-                    index_duration.as_secs().to_string().blue()
-                );
+                let path = index_dir.join("main.zito");
+                let mut index = Index::from(IndexView::try_from(&path)?);
+                index
+                    .merge(Index::from(IndexView::try_from(
+                        &other_index_dir.join("main.zito"),
+                    )?))?
+                    .store(&path)?;
             }
-            Extend {
-                search_dir,
-                index_dir,
-            } => {
-                let (index_result, index_duration) = timeit(|| {
-                    let index_path = index_dir.join(index_file_name);
-                    Index::try_from(IndexView::try_from(&index_path)?)?
-                        .extend_by_path(&search_dir)?
-                        .store(index_path)
-                });
-                index_result?;
-                println!(
-                    "Extended index in {} seconds.",
-                    index_duration.as_secs().to_string().blue()
-                );
+            IndexCommands::Compact { index_dir } => {
+                let path = index_dir.join("main.zito");
+                Index::from(IndexView::try_from(&path)?).compact(&path)?;
             }
         },
     }

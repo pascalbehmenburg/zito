@@ -1,0 +1,65 @@
+{
+  "compaction_us": 17202,
+  "observations": [
+    {
+      "candidate_documents": 1,
+      "matches": 32,
+      "open_us": 401,
+      "phase": "before_compaction",
+      "posting_lookups": 3,
+      "query_median_ns": 4791,
+      "segments": 1,
+      "stored_bytes": 82486
+    },
+    {
+      "candidate_documents": 1,
+      "matches": 32,
+      "open_us": 750,
+      "phase": "before_compaction",
+      "posting_lookups": 24,
+      "query_median_ns": 7250,
+      "segments": 8,
+      "stored_bytes": 98321
+    },
+    {
+      "candidate_documents": 1,
+      "matches": 32,
+      "open_us": 1248,
+      "phase": "before_compaction",
+      "posting_lookups": 48,
+      "query_median_ns": 15833,
+      "segments": 16,
+      "stored_bytes": 116404
+    },
+    {
+      "candidate_documents": 1,
+      "matches": 32,
+      "open_us": 1644,
+      "phase": "before_compaction",
+      "posting_lookups": 96,
+      "query_median_ns": 8000,
+      "segments": 32,
+      "stored_bytes": 152590
+    },
+    {
+      "candidate_documents": 2,
+      "matches": 64,
+      "open_us": 3423,
+      "phase": "before_compaction",
+      "posting_lookups": 192,
+      "query_median_ns": 20125,
+      "segments": 64,
+      "stored_bytes": 224985
+    },
+    {
+      "candidate_documents": 2,
+      "matches": 64,
+      "open_us": 244,
+      "phase": "after_compaction",
+      "posting_lookups": 3,
+      "query_median_ns": 10750,
+      "segments": 1,
+      "stored_bytes": 82398
+    }
+  ]
+}
